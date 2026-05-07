@@ -73,7 +73,7 @@ jobs:
           exit-code: true
 
       - name: Generate SBOM (syft)
-        uses: anchore/sbom-action@61119d458adab75f756bc0b9e4bde25725f86a7a  # v0.17.2
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
         with:
           image: ${{ env.IMAGE }}:${{ github.sha }}
           format: spdx-json
