@@ -1,0 +1,10 @@
+name: weekly-rebuild
+
+on:
+  schedule:
+    - cron: "17 7 * * 1"  # Monday 07:17 UTC
+  workflow_dispatch:
+
+jobs:
+  rebuild:
+    uses: ./.github/workflows/ci.yml

@@ -1,0 +1,6 @@
+# Generated placeholder. Replace before first build with:
+#   uv pip compile pyproject.toml --generate-hashes -o requirements.lock
+# CI must reject any change to this file that lacks --generate-hashes.
+mcp>=1.2.0
+httpx>=0.27.0
+structlog>=24.1.0
