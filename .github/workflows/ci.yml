@@ -65,7 +65,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Docker Scout (fail on critical/high)
-        uses: docker/scout-action@aceeb83b88f2ae54376891227858dda7af647183  # v1.15.0
+        uses: docker/scout-action@bacf462e8d090c09660de30a6ccc718035f961e3  # v1.15.0
         with:
           command: cves
           image: ${{ env.IMAGE }}:${{ github.sha }}
