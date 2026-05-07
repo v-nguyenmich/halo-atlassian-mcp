@@ -2,7 +2,7 @@
 # Multi-stage: build wheels in slim, final image is distroless.
 
 # Build stage uses python:3.11-slim to match distroless/python3-debian12 (Python 3.11).
-FROM python:3.11-slim AS build
+FROM python:3.14-slim AS build
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential ca-certificates && \
