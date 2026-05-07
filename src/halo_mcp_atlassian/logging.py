@@ -18,8 +18,19 @@ _REDACT_KEY = re.compile(r"(authorization|token|secret|password|cookie|api[_-]?k
 _REDACT_VALUE = "***REDACTED***"
 
 
+def _walk(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: (_REDACT_VALUE if _REDACT_KEY.search(str(k)) else _walk(v))
+                for k, v in value.items()}
+    if isinstance(value, list):
+        return [_walk(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_walk(v) for v in value)
+    return value
+
+
 def _redact(_logger: Any, _name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
-    return {k: (_REDACT_VALUE if _REDACT_KEY.search(k) else v) for k, v in event_dict.items()}
+    return _walk(event_dict)
 
 
 def configure(level: str = "INFO") -> None:

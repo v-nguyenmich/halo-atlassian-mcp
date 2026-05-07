@@ -7,13 +7,14 @@ name = "halo-mcp-atlassian"
 version = "0.1.0"
 description = "Halo Studios local MCP server for Atlassian Cloud (Jira + Confluence)"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 authors = [{ name = "Halo Studios IT Operations" }]
 license = { text = "Proprietary" }
 dependencies = [
-  "mcp>=1.2.0",
-  "httpx>=0.27.0",
-  "structlog>=24.1.0",
+  "mcp>=1.2.0,<2",
+  "httpx>=0.27.0,<1",
+  "structlog>=24.1.0,<26",
+  "python-multipart>=0.0.20",
 ]
 
 [project.optional-dependencies]

@@ -22,6 +22,8 @@ log = get_logger(__name__)
 
 _RETRY_STATUS = {429, 500, 502, 503, 504}
 _MAX_RETRIES = 4
+_MAX_RETRY_AFTER_S = 30.0
+_TOTAL_REQUEST_BUDGET_S = 120.0
 
 
 class AtlassianHTTPError(RuntimeError):
@@ -58,14 +60,22 @@ class AtlassianClient:
         return await self._request("GET", path, params=params)
 
     async def post(
-        self, path: str, json: Any = None, params: dict[str, Any] | None = None
+        self,
+        path: str,
+        json: Any = None,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> Any:
-        return await self._request("POST", path, json=json, params=params)
+        return await self._request("POST", path, json=json, params=params, headers=headers)
 
     async def put(
-        self, path: str, json: Any = None, params: dict[str, Any] | None = None
+        self,
+        path: str,
+        json: Any = None,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> Any:
-        return await self._request("PUT", path, json=json, params=params)
+        return await self._request("PUT", path, json=json, params=params, headers=headers)
 
     async def delete(self, path: str, params: dict[str, Any] | None = None) -> Any:
         return await self._request("DELETE", path, params=params)
@@ -82,6 +92,7 @@ class AtlassianClient:
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         attempt = 0
+        budget_started = time.monotonic()
         while True:
             attempt += 1
             started = time.monotonic()
@@ -90,7 +101,7 @@ class AtlassianClient:
             except httpx.HTTPError as e:
                 log.warning("http.error", product=self._product, method=method, path=path,
                             attempt=attempt, error=type(e).__name__)
-                if attempt > _MAX_RETRIES:
+                if attempt > _MAX_RETRIES or _budget_exhausted(budget_started):
                     raise
                 await asyncio.sleep(_backoff(attempt))
                 continue
@@ -99,8 +110,9 @@ class AtlassianClient:
             log.info("http.response", product=self._product, method=method, path=path,
                      status=resp.status_code, attempt=attempt, elapsed_ms=elapsed_ms)
 
-            if resp.status_code in _RETRY_STATUS and attempt <= _MAX_RETRIES:
-                retry_after = _retry_after(resp, attempt)
+            if resp.status_code in _RETRY_STATUS and attempt <= _MAX_RETRIES \
+                    and not _budget_exhausted(budget_started):
+                retry_after = min(_retry_after(resp, attempt), _MAX_RETRY_AFTER_S)
                 await asyncio.sleep(retry_after)
                 continue
 
@@ -125,6 +137,10 @@ class AtlassianClient:
         return None
 
 
+def _budget_exhausted(started: float) -> bool:
+    return (time.monotonic() - started) >= _TOTAL_REQUEST_BUDGET_S
+
+
 def _backoff(attempt: int) -> float:
     return min(2 ** (attempt - 1), 16.0)
 
@@ -141,7 +157,9 @@ def _retry_after(resp: httpx.Response, attempt: int) -> float:
 
 def _safe_error_message(resp: httpx.Response) -> str:
     """Surface Atlassian error messages WITHOUT echoing arbitrary user content
-    that could carry secrets. Limit length and strip newlines."""
+    that could carry secrets or prompt-injection payloads.
+    Limit length, strip newlines, and wrap in an untrusted-content delimiter
+    so downstream LLMs are signaled not to follow embedded instructions."""
     try:
         data = resp.json()
         msgs = data.get("errorMessages") or []
@@ -149,4 +167,5 @@ def _safe_error_message(resp: httpx.Response) -> str:
         text = "; ".join([*msgs, *(f"{k}={v}" for k, v in errs.items())])
     except Exception:
         text = resp.text or ""
-    return text.replace("\n", " ")[:300]
+    text = text.replace("\n", " ")[:300]
+    return f"<atlassian-untrusted>{text}</atlassian-untrusted>" if text else ""

@@ -1,17 +1,31 @@
-"""Jira tools — Phase 1 ships jira_get_issue. Phases 2/3 fill in the rest.
+"""Jira tools.
 
 All tools accept only path/query parameters. The base URL is host-bound
 in the AtlassianClient; tools cannot redirect requests elsewhere.
+
+Phase 3 hardening:
+- jira_update_issue restricts the writable field set to an allowlist so a
+  poisoned LLM cannot quietly change reporter, security level, watchers,
+  or arbitrary custom fields.
+- Write tools accept an optional idempotency_key forwarded to Atlassian's
+  X-Atlassian-Idempotency header (best-effort; Atlassian honors it on
+  most write endpoints, ignores it on others).
 """
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from ..adf import markdown_to_adf
 from ..client import AtlassianClient
+
+ALLOWED_UPDATE_FIELDS = frozenset({
+    "summary", "description", "labels", "priority", "duedate",
+    "components", "fixVersions", "versions", "environment",
+})
 
 
 def register_jira_tools(mcp: FastMCP, client: AtlassianClient) -> None:
@@ -96,9 +110,18 @@ def register_jira_tools(mcp: FastMCP, client: AtlassianClient) -> None:
 
     @mcp.tool()
     async def jira_update_issue(issue_key: str, fields_json: dict[str, Any]) -> None:
-        """Update an issue's fields. fields_json is the raw `fields` payload."""
+        """Update an issue's fields. fields_json is filtered against
+        ALLOWED_UPDATE_FIELDS to prevent poisoned-LLM tampering with
+        reporter, security, assignee, watchers, or arbitrary custom fields.
+        Status changes must go through jira_transition_issue.
+        """
         _require_key(issue_key)
-        await client.put(f"/rest/api/3/issue/{issue_key}", json={"fields": fields_json})
+        filtered = _filter_update_fields(fields_json)
+        if not filtered:
+            raise ValueError(
+                f"no allowed fields in update; allowlist={sorted(ALLOWED_UPDATE_FIELDS)}"
+            )
+        await client.put(f"/rest/api/3/issue/{issue_key}", json={"fields": filtered})
 
     @mcp.tool()
     async def jira_create_issue(
@@ -109,7 +132,12 @@ def register_jira_tools(mcp: FastMCP, client: AtlassianClient) -> None:
         assignee_account_id: str | None = None,
         extra_fields_json: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Create a new Jira issue."""
+        """Create a new Jira issue.
+
+        extra_fields_json is filtered against ALLOWED_UPDATE_FIELDS before
+        merge. A best-effort idempotency key is sent so retries do not
+        duplicate the issue.
+        """
         fields: dict[str, Any] = {
             "project": {"key": project_key},
             "summary": summary,
@@ -120,8 +148,17 @@ def register_jira_tools(mcp: FastMCP, client: AtlassianClient) -> None:
         if assignee_account_id:
             fields["assignee"] = {"accountId": assignee_account_id}
         if extra_fields_json:
-            fields.update(extra_fields_json)
-        return await client.post("/rest/api/3/issue", json={"fields": fields})
+            fields.update(_filter_update_fields(extra_fields_json))
+        idem = uuid.uuid4().hex
+        return await client.post(
+            "/rest/api/3/issue",
+            json={"fields": fields},
+            headers={"X-Atlassian-Idempotency": idem},
+        )
+
+
+def _filter_update_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in (fields or {}).items() if k in ALLOWED_UPDATE_FIELDS}
 
 
 def _require_key(issue_key: str) -> None:

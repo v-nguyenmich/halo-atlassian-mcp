@@ -23,6 +23,7 @@ class Config:
     auth_token: str
     request_timeout_s: float = 30.0
     max_upload_bytes: int = 50 * 1024 * 1024  # 50 MiB
+    upload_root: str = "/uploads"
     log_level: str = "INFO"
 
     @staticmethod
@@ -42,6 +43,7 @@ class Config:
             auth_token=_require("ATLASSIAN_API_TOKEN"),
             request_timeout_s=float(os.getenv("HALO_MCP_TIMEOUT_S", "30")),
             max_upload_bytes=int(os.getenv("HALO_MCP_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024))),
+            upload_root=os.getenv("HALO_MCP_UPLOAD_ROOT", "/uploads"),
             log_level=os.getenv("HALO_MCP_LOG_LEVEL", "INFO"),
         )
 

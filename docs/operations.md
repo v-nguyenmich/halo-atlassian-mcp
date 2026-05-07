@@ -15,12 +15,17 @@
 ```
 docker run --rm -i \
   --read-only --cap-drop=ALL --security-opt=no-new-privileges \
+  --tmpfs /tmp:rw,noexec,nosuid,size=10m \
   --user 65532:65532 \
   --network=atlassian-egress \
+  -v /srv/halo-mcp/uploads:/uploads:ro \
   -e ATLASSIAN_JIRA_URL -e ATLASSIAN_CONFLUENCE_URL \
   -e ATLASSIAN_EMAIL -e ATLASSIAN_API_TOKEN \
+  -e HALO_MCP_UPLOAD_ROOT=/uploads \
   ghcr.io/halostudios/halo-mcp-atlassian@sha256:<digest>
 ```
+Pass the API token by **reference** (`-e ATLASSIAN_API_TOKEN`, no value)
+so the token never appears in the docker process command line.
 
 ## Egress allowlist
 Only `*.atlassian.net` and `api.atlassian.com` (Atlassian Marketplace + media).

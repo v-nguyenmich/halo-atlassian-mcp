@@ -36,13 +36,22 @@ try {
 $dockerArgs = @(
     "run", "--rm", "-i",
     "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
+    "--tmpfs", "/tmp:rw,noexec,nosuid,size=10m",
     "--user", "65532:65532",
     "-e", "ATLASSIAN_JIRA_URL=$JiraUrl",
     "-e", "ATLASSIAN_CONFLUENCE_URL=$ConfluenceUrl",
     "-e", "ATLASSIAN_EMAIL=$Email",
-    "-e", "ATLASSIAN_API_TOKEN=$token",
+    # Pass token by reference, not by value, so it never appears in the
+    # docker process command line (visible via Get-CimInstance Win32_Process
+    # to any process running as the same user).
+    "-e", "ATLASSIAN_API_TOKEN",
     $ImageDigest
 )
 
-& docker @dockerArgs
-exit $LASTEXITCODE
+$env:ATLASSIAN_API_TOKEN = $token
+try {
+    & docker @dockerArgs
+    exit $LASTEXITCODE
+} finally {
+    Remove-Item Env:\ATLASSIAN_API_TOKEN -ErrorAction SilentlyContinue
+}
