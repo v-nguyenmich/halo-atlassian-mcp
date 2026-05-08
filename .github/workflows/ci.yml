@@ -66,13 +66,14 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
 
-      - name: Docker Scout (fail on critical/high)
+      - name: Docker Scout (informational; Trivy is the gate)
         uses: docker/scout-action@aceeb83b88f2ae54376891227858dda7af647183  # v1.15.0
+        continue-on-error: true
         with:
           command: cves
           image: ${{ env.IMAGE }}:${{ github.sha }}
           only-severities: critical,high
-          exit-code: true
+          exit-code: false
 
       - name: Generate SBOM (syft)
         uses: anchore/sbom-action@61119d458adab75f756bc0b9e4bde25725f86a7a  # v0.17.2
