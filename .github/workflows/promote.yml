@@ -1,0 +1,48 @@
+name: promote-to-stable
+
+# Manual promotion of a canary digest to :stable. Run from the Actions tab
+# after canary has soaked. The output digest goes into the wrapper PR.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit SHA whose image to promote (must already be pushed by ci.yml)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/halo-mcp-atlassian
+    steps:
+      - uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567  # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Re-tag commit image as :stable
+        run: |
+          docker buildx imagetools create \
+            --tag ${{ env.IMAGE }}:stable \
+            ${{ env.IMAGE }}:${{ inputs.sha }}
+
+      - name: Resolve and print stable digest
+        run: |
+          DIGEST=$(docker buildx imagetools inspect ${{ env.IMAGE }}:stable --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "STABLE_DIGEST=$DIGEST" >> $GITHUB_ENV
+          echo "::notice::Promoted ${{ inputs.sha }} -> ${{ env.IMAGE }}:stable @ $DIGEST"
+          echo "Update wrapper HALO_MCP_IMAGE to: ${{ env.IMAGE }}@$DIGEST"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@4959ce089c160fddf62f7b42464195ba1a56d382  # v3.6.0
+
+      - name: Sign :stable
+        run: cosign sign --yes ${{ env.IMAGE }}@${{ env.STABLE_DIGEST }}

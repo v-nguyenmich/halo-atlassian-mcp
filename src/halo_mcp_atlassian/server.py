@@ -19,7 +19,11 @@ def build_server() -> FastMCP:
     mcp = FastMCP("halo-atlassian")
 
     jira = AtlassianClient(cfg.jira_base_url, cfg, product="jira")
-    confluence = AtlassianClient(cfg.confluence_base_url, cfg, product="confluence")
+    # NOTE: httpx 0.28+ appends absolute paths to base_url instead of
+    # replacing them. Strip /wiki suffix here because all confluence tool
+    # paths already start with /wiki/.
+    confluence_host = cfg.confluence_base_url.removesuffix("/wiki")
+    confluence = AtlassianClient(confluence_host, cfg, product="confluence")
 
     register_jira_tools(mcp, jira)
     register_confluence_tools(mcp, confluence, cfg)
