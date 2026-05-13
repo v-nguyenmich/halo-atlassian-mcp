@@ -47,6 +47,7 @@ def test_assets_tools_register(assets_client: AtlassianClient) -> None:
         "assets_get_object_attributes",
         "assets_list_schemas",
         "assets_list_object_types",
+        "assets_list_object_type_attributes",
     }
 
 
@@ -95,6 +96,79 @@ async def test_aql_search_passes_qlquery_in_body(assets_client: AtlassianClient)
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_aql_search_compact_strips_response_and_forces_no_attributes(
+    assets_client: AtlassianClient,
+) -> None:
+    """compact=True must (a) flip includeAttributes to false on the wire,
+    (b) drop avatar/schema/attributes from each row, (c) keep the identifying
+    fields a caller actually needs."""
+    fat_row = {
+        "id": "3945",
+        "objectKey": "AMT-3945",
+        "label": "HPZ4 Condor",
+        "globalId": "ws:3945",
+        "avatar": {"url16": "x", "url48": "y", "url72": "z"},
+        "objectType": {
+            "id": "35",
+            "name": "Desktops",
+            "icon": {"url16": "i"},
+            "parentObjectTypeId": "12",
+            "schemaId": "1",
+        },
+        "attributes": [{"id": "a", "objectAttributeValues": [{"value": "v"}]}],
+        "extendedInfo": {"openIssuesExists": False},
+        "_links": {"self": "..."},
+    }
+    route = respx.post(
+        f"{ASSETS_BASE}/jsm/assets/workspace/{WS}/v1/object/aql"
+    ).mock(return_value=httpx.Response(
+        200,
+        json={"startAt": 0, "maxResults": 50, "total": 1, "isLast": True, "values": [fat_row]},
+    ))
+    mcp = FastMCP("t")
+    register_assets_tools(mcp, assets_client, WS)
+    tool = next(t for t in mcp._tool_manager.list_tools() if t.name == "assets_aql_search")
+    out = await tool.fn(aql='Name LIKE "X"', compact=True, include_attributes=True)
+    # forced to false on the wire even though caller passed True
+    assert b"includeAttributes=false" in route.calls[0].request.url.query
+    # paging metadata kept
+    assert out["total"] == 1 and out["isLast"] is True and out["startAt"] == 0
+    # row stripped to identifying fields + slim objectType
+    row = out["values"][0]
+    assert row == {
+        "id": "3945",
+        "objectKey": "AMT-3945",
+        "label": "HPZ4 Condor",
+        "objectType": {"id": "35", "name": "Desktops"},
+    }
+    # the heavy fields are gone
+    assert "avatar" not in row
+    assert "attributes" not in row
+    assert "globalId" not in row
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_aql_search_default_is_not_compact(assets_client: AtlassianClient) -> None:
+    """Backward compat: default behavior must echo the upstream payload as-is
+    so existing callers still get attributes when they ask for them."""
+    upstream = {
+        "total": 1,
+        "values": [{"id": "1", "objectKey": "AMT-1", "label": "x", "avatar": {"url16": "a"}}],
+    }
+    respx.post(
+        f"{ASSETS_BASE}/jsm/assets/workspace/{WS}/v1/object/aql"
+    ).mock(return_value=httpx.Response(200, json=upstream))
+    mcp = FastMCP("t")
+    register_assets_tools(mcp, assets_client, WS)
+    tool = next(t for t in mcp._tool_manager.list_tools() if t.name == "assets_aql_search")
+    out = await tool.fn(aql='X')
+    assert out == upstream
+    assert "avatar" in out["values"][0]
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_get_object_uses_numeric_id_path(assets_client: AtlassianClient) -> None:
     respx.get(
         f"{ASSETS_BASE}/jsm/assets/workspace/{WS}/v1/object/12345"
@@ -130,9 +204,10 @@ def test_write_tools_not_registered_when_disabled(assets_client: AtlassianClient
         "assets_create_object",
         "assets_update_object",
         "assets_delete_object",
-        "assets_list_object_type_attributes",
     ):
         assert tool not in names
+    # the schema-introspection helper is read-only; it should always register
+    assert "assets_list_object_type_attributes" in names
 
 
 def test_write_tools_not_registered_when_allowlist_empty(assets_client: AtlassianClient) -> None:
@@ -154,8 +229,8 @@ def test_write_tools_register_when_enabled(assets_client: AtlassianClient) -> No
         "assets_create_object",
         "assets_update_object",
         "assets_delete_object",
-        "assets_list_object_type_attributes",
     }.issubset(names)
+    assert "assets_list_object_type_attributes" in names
 
 
 @pytest.mark.asyncio

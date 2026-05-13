@@ -44,6 +44,7 @@ still come up).
 | assets_get_object_attributes | GET | /jsm/assets/workspace/{ws}/v1/object/{id}/attributes |
 | assets_list_schemas | GET | /jsm/assets/workspace/{ws}/v1/objectschema/list |
 | assets_list_object_types | GET | /jsm/assets/workspace/{ws}/v1/objectschema/{id}/objecttypes/flat |
+| assets_list_object_type_attributes | GET | /jsm/assets/workspace/{ws}/v1/objecttype/{id}/attributes |
 
 AQL query examples:
 - `objectType = Laptop AND Owner.emailAddress = "user@halostudios.com"`
@@ -51,6 +52,8 @@ AQL query examples:
 - `Key = "HSE-42"`
 
 `max_results` is hard-capped at 200 per call.
+
+`assets_aql_search(compact=True)` strips each row down to `{id, objectKey, label, objectType:{id,name}}` and forces `includeAttributes=false`, shrinking responses ~100×. Use it for list/browse queries to avoid tool-output truncation; switch to `compact=False` (default) when you need attribute values.
 
 ### Assets write surface (opt-in, default OFF)
 Disabled unless BOTH env vars are set on the server process:
@@ -61,7 +64,6 @@ If either is missing/empty, the four write tools below do not register.
 
 | Tool | Method | Path |
 |---|---|---|
-| assets_list_object_type_attributes | GET | /jsm/assets/workspace/{ws}/v1/objecttype/{id}/attributes |
 | assets_create_object | POST | /jsm/assets/workspace/{ws}/v1/object/create |
 | assets_update_object | PUT | /jsm/assets/workspace/{ws}/v1/object/{id} |
 | assets_delete_object | DELETE | /jsm/assets/workspace/{ws}/v1/object/{id} |

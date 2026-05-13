@@ -50,6 +50,7 @@ def register_assets_tools(
         start_at: int = 0,
         max_results: int = 50,
         include_attributes: bool = True,
+        compact: bool = False,
     ) -> dict[str, Any]:
         """Search Assets objects with AQL (Asset Query Language).
 
@@ -60,9 +61,17 @@ def register_assets_tools(
 
         AQL is NOT JQL. Reference:
         https://support.atlassian.com/jira-service-management-cloud/docs/use-assets-query-language-aql/
+
+        compact=True forces include_attributes=False AND strips per-row fields
+        down to {id, objectKey, label, objectType:{id,name}}. Use compact for
+        list/browse queries to keep responses ~100x smaller (avoids tool-output
+        truncation on result sets > a few rows). Use compact=False (default)
+        when you actually need attribute values or avatar/schema metadata.
         """
         max_results = max(1, min(int(max_results), _MAX_RESULTS_CEILING))
-        return await client.post(
+        if compact:
+            include_attributes = False
+        data = await client.post(
             f"{base}/object/aql",
             json={"qlQuery": aql},
             params={
@@ -71,6 +80,9 @@ def register_assets_tools(
                 "includeAttributes": str(bool(include_attributes)).lower(),
             },
         )
+        if compact and isinstance(data, dict):
+            data = _compact_aql_response(data)
+        return data
 
     @mcp.tool()
     async def assets_get_object(object_id: str) -> dict[str, Any]:
@@ -101,20 +113,21 @@ def register_assets_tools(
             f"{base}/objectschema/{schema_id}/objecttypes/flat"
         )
 
-    if not (write_enabled and write_object_types):
-        return
-
     @mcp.tool()
     async def assets_list_object_type_attributes(object_type_id: str) -> Any:
         """List attribute schema (id, name, type) for an object type.
 
-        Required to discover the numeric attribute ids that
-        assets_create_object / assets_update_object expect as keys in the
-        attributes dict. Read-only; safe even when write is enabled.
+        Read-only. Use this to map the numeric attribute ids returned by
+        assets_get_object / assets_aql_search(include_attributes=true) into
+        human-readable names. Also required to discover the attribute_ids
+        that assets_create_object / assets_update_object expect.
         """
         return await client.get(
             f"{base}/objecttype/{object_type_id}/attributes"
         )
+
+    if not (write_enabled and write_object_types):
+        return
 
     @mcp.tool()
     async def assets_create_object(
@@ -227,3 +240,32 @@ def _stringify(v: Any) -> str:
     if isinstance(v, bool):
         return "true" if v else "false"
     return str(v)
+
+
+_AQL_TOP_KEEP = ("startAt", "maxResults", "total", "isLast", "pageSize", "pageObjectSize")
+_AQL_ROW_KEEP = ("id", "objectKey", "label")
+
+
+def _compact_aql_response(data: dict[str, Any]) -> dict[str, Any]:
+    """Strip an AQL search response down to identifying fields.
+
+    Keeps top-level paging metadata. For each row, keeps only id, objectKey,
+    label, and a flattened {id,name} object type. Drops avatar URLs, schema
+    blobs, attributes, and per-attribute references.
+    """
+    out: dict[str, Any] = {k: data[k] for k in _AQL_TOP_KEEP if k in data}
+    rows = data.get("values") or []
+    compact_rows: list[dict[str, Any]] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        row = {k: r[k] for k in _AQL_ROW_KEEP if k in r}
+        ot = r.get("objectType") or {}
+        if isinstance(ot, dict):
+            row["objectType"] = {
+                "id": ot.get("id"),
+                "name": ot.get("name"),
+            }
+        compact_rows.append(row)
+    out["values"] = compact_rows
+    return out
