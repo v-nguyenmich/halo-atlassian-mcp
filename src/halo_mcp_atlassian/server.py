@@ -65,7 +65,13 @@ def build_server() -> FastMCP:
     assets_enabled = False
     if workspace_id:
         assets = AtlassianClient(cfg.assets_api_base, cfg, product="assets")
-        register_assets_tools(mcp, assets, workspace_id)
+        register_assets_tools(
+            mcp,
+            assets,
+            workspace_id,
+            write_enabled=cfg.assets_write_enabled,
+            write_object_types=cfg.assets_write_object_types,
+        )
         assets_enabled = True
 
     log.info(
@@ -75,5 +81,7 @@ def build_server() -> FastMCP:
         confluence_base=cfg.confluence_base_url,
         assets_enabled=assets_enabled,
         assets_workspace_id=workspace_id if assets_enabled else None,
+        assets_write_enabled=cfg.assets_write_enabled and bool(cfg.assets_write_object_types),
+        assets_write_allowlist=sorted(cfg.assets_write_object_types) if cfg.assets_write_enabled else [],
     )
     return mcp

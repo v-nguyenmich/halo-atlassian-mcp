@@ -27,6 +27,8 @@ class Config:
     log_level: str = "INFO"
     assets_workspace_id: str | None = None
     assets_api_base: str = "https://api.atlassian.com"
+    assets_write_enabled: bool = False
+    assets_write_object_types: frozenset[str] = frozenset()
 
     @staticmethod
     def from_env() -> "Config":
@@ -48,7 +50,15 @@ class Config:
             upload_root=os.getenv("HALO_MCP_UPLOAD_ROOT", "/uploads"),
             log_level=os.getenv("HALO_MCP_LOG_LEVEL", "INFO"),
             assets_workspace_id=os.getenv("ATLASSIAN_ASSETS_WORKSPACE_ID") or None,
+            assets_write_enabled=_truthy(os.getenv("HALO_MCP_ASSETS_WRITE")),
+            assets_write_object_types=frozenset(
+                t.strip() for t in (os.getenv("HALO_MCP_ASSETS_WRITE_OBJECT_TYPES") or "").split(",") if t.strip()
+            ),
         )
+
+
+def _truthy(v: str | None) -> bool:
+    return (v or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _require(name: str) -> str:

@@ -51,3 +51,24 @@ AQL query examples:
 - `Key = "HSE-42"`
 
 `max_results` is hard-capped at 200 per call.
+
+### Assets write surface (opt-in, default OFF)
+Disabled unless BOTH env vars are set on the server process:
+- `HALO_MCP_ASSETS_WRITE=1`
+- `HALO_MCP_ASSETS_WRITE_OBJECT_TYPES=<comma-separated numeric objectType ids>`
+
+If either is missing/empty, the four write tools below do not register.
+
+| Tool | Method | Path |
+|---|---|---|
+| assets_list_object_type_attributes | GET | /jsm/assets/workspace/{ws}/v1/objecttype/{id}/attributes |
+| assets_create_object | POST | /jsm/assets/workspace/{ws}/v1/object/create |
+| assets_update_object | PUT | /jsm/assets/workspace/{ws}/v1/object/{id} |
+| assets_delete_object | DELETE | /jsm/assets/workspace/{ws}/v1/object/{id} |
+
+Guards:
+- Create rejects any `object_type_id` not in the allowlist.
+- Update fetches the live object first, reads `objectType.id`, and rejects if not in the allowlist.
+- Delete additionally requires `confirm_object_key` to equal the live `objectKey` (e.g. `AMT-10977`). Mismatch raises `AssetsWriteDenied` and no DELETE is sent.
+- `attributes` is a friendly dict `{attribute_id: value | [values]}`; the server formats it into Atlassian's verbose `objectAttributeValues` shape.
+- Use `assets_list_object_type_attributes` to discover the numeric attribute ids (and their human names) for an object type before writing.
