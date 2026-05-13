@@ -30,3 +30,24 @@ All tools are registered on the FastMCP server named `halo-atlassian`.
 - No tool accepts a URL, scheme, or host. Only ids, keys, and query/body fields.
 - Markdown bodies (comments, descriptions) are converted to ADF in `adf.py`.
 - Confluence pages use `storage` representation in v1; HTML rendering is a Phase 2 follow-up.
+
+## Assets / JSM (REST v1, host: api.atlassian.com)
+Auto-discovers workspace id at startup via `/rest/servicedeskapi/assets/workspace`
+on the Jira host. Pin explicitly with `ATLASSIAN_ASSETS_WORKSPACE_ID` to skip
+discovery. If discovery fails, Assets tools are not registered (Jira + Confluence
+still come up).
+
+| Tool | Method | Path |
+|---|---|---|
+| assets_aql_search | POST | /jsm/assets/workspace/{ws}/v1/object/aql |
+| assets_get_object | GET | /jsm/assets/workspace/{ws}/v1/object/{id} |
+| assets_get_object_attributes | GET | /jsm/assets/workspace/{ws}/v1/object/{id}/attributes |
+| assets_list_schemas | GET | /jsm/assets/workspace/{ws}/v1/objectschema/list |
+| assets_list_object_types | GET | /jsm/assets/workspace/{ws}/v1/objectschema/{id}/objecttypes/flat |
+
+AQL query examples:
+- `objectType = Laptop AND Owner.emailAddress = "user@halostudios.com"`
+- `objectSchema = "Halo Studios Employees" AND Name LIKE "Nguyen"`
+- `Key = "HSE-42"`
+
+`max_results` is hard-capped at 200 per call.

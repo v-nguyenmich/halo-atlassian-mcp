@@ -25,6 +25,8 @@ class Config:
     max_upload_bytes: int = 50 * 1024 * 1024  # 50 MiB
     upload_root: str = "/uploads"
     log_level: str = "INFO"
+    assets_workspace_id: str | None = None
+    assets_api_base: str = "https://api.atlassian.com"
 
     @staticmethod
     def from_env() -> "Config":
@@ -45,6 +47,7 @@ class Config:
             max_upload_bytes=int(os.getenv("HALO_MCP_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024))),
             upload_root=os.getenv("HALO_MCP_UPLOAD_ROOT", "/uploads"),
             log_level=os.getenv("HALO_MCP_LOG_LEVEL", "INFO"),
+            assets_workspace_id=os.getenv("ATLASSIAN_ASSETS_WORKSPACE_ID") or None,
         )
 
 
