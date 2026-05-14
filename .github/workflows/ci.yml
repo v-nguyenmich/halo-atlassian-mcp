@@ -14,7 +14,7 @@ jobs:
   lockfile-hashes:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Verify requirements.lock contains --hash entries
         run: |
           if ! grep -q -- '--hash=sha256:' requirements.lock; then
@@ -26,8 +26,8 @@ jobs:
     needs: lockfile-hashes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7
-      - uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f  # v5.1.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
@@ -40,15 +40,15 @@ jobs:
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/halo-mcp-atlassian
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7
-      - uses: docker/setup-buildx-action@988b5a0280414f521da01fcc63a27aeeb4b104db  # v3.6.1
-      - uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567  # v3.3.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4.0.0
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: build
-        uses: docker/build-push-action@5cd11c3a4ced054e52742c5fd54dca954e0edd85  # v6.7.0
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
         with:
           context: .
           push: true
@@ -59,7 +59,7 @@ jobs:
           sbom: true
 
       - name: Trivy scan (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8  # v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: ${{ env.IMAGE }}:${{ github.sha }}
           severity: HIGH,CRITICAL
@@ -67,7 +67,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Docker Scout (informational; Trivy is the gate)
-        uses: docker/scout-action@aceeb83b88f2ae54376891227858dda7af647183  # v1.15.0
+        uses: docker/scout-action@bacf462e8d090c09660de30a6ccc718035f961e3  # v1.15.0
         continue-on-error: true
         with:
           command: cves
@@ -76,14 +76,14 @@ jobs:
           exit-code: false
 
       - name: Generate SBOM (syft)
-        uses: anchore/sbom-action@61119d458adab75f756bc0b9e4bde25725f86a7a  # v0.17.2
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
         with:
           image: ${{ env.IMAGE }}:${{ github.sha }}
           format: spdx-json
           output-file: sbom.spdx.json
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@4959ce089c160fddf62f7b42464195ba1a56d382  # v3.6.0
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
 
       - name: Sign image (keyless OIDC)
         run: cosign sign --yes ${{ env.IMAGE }}:${{ github.sha }}
@@ -91,7 +91,7 @@ jobs:
       - name: Attest SBOM
         run: cosign attest --yes --predicate sbom.spdx.json --type spdxjson ${{ env.IMAGE }}:${{ github.sha }}
 
-      - uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b  # v4.3.4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sbom
           path: sbom.spdx.json

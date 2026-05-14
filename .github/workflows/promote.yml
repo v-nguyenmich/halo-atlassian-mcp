@@ -22,7 +22,7 @@ jobs:
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/halo-mcp-atlassian
     steps:
-      - uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567  # v3.3.0
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -42,7 +42,7 @@ jobs:
           echo "Update wrapper HALO_MCP_IMAGE to: ${{ env.IMAGE }}@$DIGEST"
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@4959ce089c160fddf62f7b42464195ba1a56d382  # v3.6.0
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
 
       - name: Sign :stable
         run: cosign sign --yes ${{ env.IMAGE }}@${{ env.STABLE_DIGEST }}
