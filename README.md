@@ -51,3 +51,7 @@ See [`skills/`](./skills/) for an optional Copilot CLI skill that pairs with thi
 ## Security posture
 
 See `docs/threat-model.md`.
+
+---
+
+_This project was created with the help of AI and reviewed by Michael Nguyen._
