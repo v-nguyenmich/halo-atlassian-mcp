@@ -44,6 +44,10 @@ See `docs/operations.md`.
 
 See `docs/tool-reference.md`. 16 tools total: 9 Jira + 7 Confluence.
 
+## Copilot CLI skill
+
+See [`skills/`](./skills/) for an optional Copilot CLI skill that pairs with this server and packages common Jira / Assets / Confluence workflows.
+
 ## Security posture
 
 See `docs/threat-model.md`.
