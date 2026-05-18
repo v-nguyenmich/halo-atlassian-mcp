@@ -5,8 +5,9 @@ the `halo-mcp-atlassian` MCP server inside Docker.
 
 ## What it does
 
-- Reads the Atlassian API token from a `Microsoft.PowerShell.SecretManagement`
-  vault named `CopilotVault` (secret name `AtlassianApiToken`).
+- Dot-sources `CredentialStore.ps1` (sibling file) and reads the Atlassian
+  email + API token from **Windows Credential Manager** generic credential
+  `halo-atlassian:api-token` via Win32 P/Invoke. **No PSGallery modules.**
 - Pulls a pinned image digest (`$DefaultImage`) from GHCR.
 - Runs a self-check (`--check`) before serving stdio MCP traffic.
 - If the pinned image fails the check, falls back to a previous-known-good
@@ -14,7 +15,22 @@ the `halo-mcp-atlassian` MCP server inside Docker.
 - Mounts `D:\CopilotScripts\halo-mcp-atlassian\uploads` read-only into the
   container at `/uploads` for attachment uploads.
 
-Override at runtime:
+## Deployment
+
+Run `setup\Install-HaloAtlassianMcp.ps1` from the repo root. The installer
+prompts for email + token, writes the credential, copies this wrapper and
+`CredentialStore.ps1` into `D:\CopilotScripts\`, merges a `halo-atlassian`
+entry into `~/.copilot/mcp-config.json`, pulls the pinned image, and runs
+`--check`. Re-run any time to rotate the token.
+
+To inspect / manually manage the credential:
+
+```powershell
+cmdkey /list:halo-atlassian:api-token        # show entry
+cmdkey /delete:halo-atlassian:api-token      # remove
+```
+
+## Overrides
 
 | Env var                              | Effect                                                  |
 | ------------------------------------ | ------------------------------------------------------- |
@@ -23,15 +39,6 @@ Override at runtime:
 | `HALO_MCP_NO_PULL=1`                 | Skip `docker pull` (offline/cached).                    |
 | `HALO_MCP_ASSETS_WRITE=1`            | Enable Assets create/update/delete tools (default OFF). |
 | `HALO_MCP_ASSETS_WRITE_OBJECT_TYPES` | Comma-separated numeric objectType IDs allowed.         |
+| `ATLASSIAN_JIRA_URL`                 | Override Jira tenant (default: Halo Studios).           |
+| `ATLASSIAN_CONFLUENCE_URL`           | Override Confluence tenant (default: Halo Studios).     |
 
-## Relationship to `Run-HaloAtlassian.ps1`
-
-The repo also contains `Run-HaloAtlassian.ps1` at the repo root. That script is
-an older reference wrapper that expects a `copilotvault` CLI binary and accepts
-parameters via the command line. **The active wrapper used by Copilot CLI is
-this one (`wrapper/mcp-halo-atlassian.ps1`)** — it uses
-`Microsoft.PowerShell.SecretManagement` and is launched non-interactively by
-the MCP host.
-
-If you're setting up a new machine, follow `wrapper/README.md` (this file) and
-the parent repo `README.md` "User setup" section — not the older script.

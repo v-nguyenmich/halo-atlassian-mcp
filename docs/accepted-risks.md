@@ -61,11 +61,11 @@ does not miss it.
 ## AR-5 — API token has full user scope
 **Surface:** Auth model in v1.
 **Why accepted:** Phase 0 alignment defaulted to a shared service-account
-API token from CopilotVault. Switching to OAuth 3LO is a Phase 6 task
+API token. Switching to OAuth 3LO is a Phase 6 task
 with separate change-management requirements.
 **Compensating controls:**
-- Token is stored only in CopilotVault; never written to disk by the wrapper.
-- Token is passed to the container by reference, not value (Run-HaloAtlassian.ps1).
+- Token is stored in Windows Credential Manager (DPAPI-encrypted per user); never written to disk by the wrapper.
+- Token is passed to the container by reference, not value (`wrapper/mcp-halo-atlassian.ps1`).
 - structlog redaction strips token-like keys from any logged event.
 **Re-evaluate when:** Phase 6 OAuth ships, or the service account is
 granted broader permissions.

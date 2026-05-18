@@ -39,13 +39,14 @@ and falls back to direct REST + Basic auth for the rest.
 - `halo-atlassian` MCP server configured in `~/.copilot/mcp-config.json`
   under `mcpServers.halo-atlassian`. The MCP server reads its own
   credentials from its env block.
-- An Atlassian API token stored in **Windows Credential Manager** (Generic
-  Credential), retrievable from PowerShell. Two equivalent options:
-  - `Get-Secret -Name AtlassianApiToken -Vault CopilotVault -AsPlainText`
-    (PowerShell SecretManagement + SecretStore — recommended)
-  - `cmdkey`-stored Generic Credential read via Win32 `CredRead` P/Invoke
-- Atlassian email used for Basic auth — defaults to current user's UPN.
-  Override with `$env:ATLASSIAN_EMAIL`.
+- An Atlassian API token stored in **Windows Credential Manager** as a
+  Generic Credential named `halo-atlassian:api-token`. Read it via the
+  helper shipped with this repo:
+  - `. D:\CopilotScripts\CredentialStore.ps1; (Get-HaloAtlassianCredential)`
+    returns `[pscustomobject]@{Email; Token}`. Falls back to Win32
+    `CredRead` P/Invoke under the hood — no PSGallery modules required.
+- Atlassian email comes from the credential's UserName field (no env
+  override needed).
 
 If credentials are missing, stop and tell the user how to add them — do
 not prompt for the token in chat.
@@ -55,8 +56,9 @@ not prompt for the token in chat.
 Use this for any direct REST call:
 
 ```powershell
-$token = Get-Secret -Name AtlassianApiToken -Vault CopilotVault -AsPlainText
-$email = if ($env:ATLASSIAN_EMAIL) { $env:ATLASSIAN_EMAIL } else { 'v-nguyenmich@halostudios.com' }
+$cred = . D:\CopilotScripts\CredentialStore.ps1; Get-HaloAtlassianCredential
+$email = $cred.Email
+$token = $cred.Token
 $b64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${email}:${token}"))
 $headers = @{ Authorization = "Basic $b64"; 'Content-Type'='application/json'; Accept='application/json' }
 $base = 'https://343industries.atlassian.net'

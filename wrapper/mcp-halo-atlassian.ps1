@@ -2,6 +2,10 @@
 # Phase 5+: GHCR-pinned image with health gate + automatic fallback to a known-good
 # previous digest if the new image fails its self-check.
 #
+# Credentials: Windows Credential Manager generic entry
+#   target=halo-atlassian:api-token, UserName=email, Password=API token.
+# Provisioned by setup\Install-HaloAtlassianMcp.ps1.
+#
 # Image source-of-truth: this file. Update via PR + wrapper redeploy.
 # Override at runtime with $env:HALO_MCP_IMAGE (e.g. for canary testing).
 # Skip pull with $env:HALO_MCP_NO_PULL=1 (offline mode; uses cached image).
@@ -15,20 +19,39 @@ $DefaultImage  = 'ghcr.io/v-nguyenmich/halo-mcp-atlassian@sha256:82c1f51bb4de0c9
 $CurrentImage  = $env:HALO_MCP_IMAGE        ; if (-not $CurrentImage)  { $CurrentImage  = $DefaultImage }
 $PreviousImage = $env:HALO_MCP_PREV_IMAGE   ; if (-not $PreviousImage) { $PreviousImage = 'ghcr.io/v-nguyenmich/halo-mcp-atlassian@sha256:61d8452cb0bfeda8c768a4095b7014bb85ff1a44d172e4188170ebcfdf7f22ca' }  # prior canary 0e2ae95
 
-# ---- Token from CopilotVault ------------------------------------------------
+# ---- Credentials from Windows Credential Manager ----------------------------
+# The credential helper is shipped alongside this wrapper. Look for it next
+# to the wrapper first (deployed location), then in the repo's wrapper/ dir
+# (developer running directly out of a clone).
+$helperCandidates = @(
+    (Join-Path $PSScriptRoot 'CredentialStore.ps1'),
+    'D:\CopilotScripts\halo-mcp-atlassian\wrapper\CredentialStore.ps1'
+) | Where-Object { Test-Path $_ }
+if (-not $helperCandidates) {
+    [Console]::Error.WriteLine("mcp-halo-atlassian: CredentialStore.ps1 not found; reinstall via setup\Install-HaloAtlassianMcp.ps1")
+    exit 1
+}
+. $helperCandidates[0]
+
 try {
-    Import-Module Microsoft.PowerShell.SecretManagement -ErrorAction Stop
-    $token = Get-Secret -Name AtlassianApiToken -Vault CopilotVault -AsPlainText
+    $cred = Get-HaloAtlassianCredential
 }
 catch {
-    [Console]::Error.WriteLine("mcp-halo-atlassian wrapper: failed to read AtlassianApiToken from CopilotVault: $_")
+    [Console]::Error.WriteLine("mcp-halo-atlassian: failed to read credential from Windows Credential Manager: $_")
+    exit 1
+}
+if (-not $cred -or -not $cred.Token -or -not $cred.Email) {
+    [Console]::Error.WriteLine("mcp-halo-atlassian: no credential found at target 'halo-atlassian:api-token'.")
+    [Console]::Error.WriteLine("Run: pwsh -File <repo>\setup\Install-HaloAtlassianMcp.ps1")
     exit 1
 }
 
-$env:ATLASSIAN_JIRA_URL       = 'https://343industries.atlassian.net'
-$env:ATLASSIAN_CONFLUENCE_URL = 'https://343industries.atlassian.net/wiki'
-$env:ATLASSIAN_EMAIL          = 'v-nguyenmich@halostudios.com'
-$env:ATLASSIAN_API_TOKEN      = $token
+# ---- Tenant URLs are the same for every Halo employee ----------------------
+# Overridable via environment for testing against a different tenant.
+if (-not $env:ATLASSIAN_JIRA_URL)       { $env:ATLASSIAN_JIRA_URL       = 'https://343industries.atlassian.net' }
+if (-not $env:ATLASSIAN_CONFLUENCE_URL) { $env:ATLASSIAN_CONFLUENCE_URL = 'https://343industries.atlassian.net/wiki' }
+$env:ATLASSIAN_EMAIL     = $cred.Email
+$env:ATLASSIAN_API_TOKEN = $cred.Token
 
 # Assets write surface: opt-in. Set both env vars in your shell/profile to
 # enable create/update/delete tools. Default OFF; only AQL/get/list register.

@@ -6,7 +6,7 @@
 | ATLASSIAN_JIRA_URL | `https://343industries.atlassian.net` |
 | ATLASSIAN_CONFLUENCE_URL | same as Jira on Cloud |
 | ATLASSIAN_EMAIL | service account UPN |
-| ATLASSIAN_API_TOKEN | from CopilotVault |
+| ATLASSIAN_API_TOKEN | from Windows Credential Manager (`halo-atlassian:api-token`) |
 | HALO_MCP_LOG_LEVEL | INFO (default) |
 | HALO_MCP_TIMEOUT_S | 30 |
 | HALO_MCP_MAX_UPLOAD_BYTES | 52428800 |
@@ -38,25 +38,13 @@ cosign verify ghcr.io/halostudios/halo-mcp-atlassian@sha256:<digest> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-## Coexistence with sooperset
-This server registers under MCP name `halo-atlassian`. Sooperset's entry
-(usually `atlassian`) is left untouched. Add this entry to
-`~/.copilot/mcp-config.json`:
-```json
-{
-  "mcpServers": {
-    "halo-atlassian": {
-      "command": "powershell",
-      "args": [
-        "-NoProfile", "-File",
-        "D:\\CopilotScripts\\halo-mcp-atlassian\\Run-HaloAtlassian.ps1"
-      ]
-    }
-  }
-}
-```
-The wrapper pulls the API token from CopilotVault and execs the pinned
-container digest.
+## Wrapper deployment
+This server registers under MCP name `halo-atlassian`. The wrapper script
+(`wrapper/mcp-halo-atlassian.ps1`) reads the Atlassian API token + email
+from Windows Credential Manager (generic credential
+`halo-atlassian:api-token`) and execs the pinned container digest. Deploy
+via `setup/Install-HaloAtlassianMcp.ps1` — see the repo `README.md` for
+the end-user setup recipe.
 
 ## Audit
 structlog emits JSON to stderr. Each request logs:
