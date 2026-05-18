@@ -55,9 +55,9 @@ def register_assets_tools(
         """Search Assets objects with AQL (Asset Query Language).
 
         Examples:
-          - 'objectType = Laptop AND Owner = "user@halostudios.com"'
-          - 'objectSchema = "Halo Studios Employees" AND Name LIKE "Nguyen"'
-          - 'Owner.emailAddress = "v-nguyenmich@halostudios.com"'
+          - 'objectType = Laptop AND Owner = "user@example.com"'
+          - 'objectSchema = "Employees" AND Name LIKE "Smith"'
+          - 'Owner.emailAddress = "user@example.com"'
 
         AQL is NOT JQL. Reference:
         https://support.atlassian.com/jira-service-management-cloud/docs/use-assets-query-language-aql/

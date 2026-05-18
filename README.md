@@ -1,6 +1,6 @@
 # halo-mcp-atlassian
 
-Halo Studios local MCP server for Atlassian Cloud. In-house, signed, audited build.
+Self-hosted MCP server for Atlassian Cloud. Signed, scanned, distroless.
 
 - Protocol: MCP (FastMCP, Python SDK)
 - APIs: Jira REST v3, Confluence REST v2, JSM Assets v1
@@ -13,9 +13,9 @@ Halo Studios local MCP server for Atlassian Cloud. In-house, signed, audited bui
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
-$env:ATLASSIAN_JIRA_URL = "https://343industries.atlassian.net"
-$env:ATLASSIAN_CONFLUENCE_URL = "https://343industries.atlassian.net"
-$env:ATLASSIAN_EMAIL = "you@halostudios.com"
+$env:ATLASSIAN_JIRA_URL = "https://your-tenant.atlassian.net"
+$env:ATLASSIAN_CONFLUENCE_URL = "https://your-tenant.atlassian.net/wiki"
+$env:ATLASSIAN_EMAIL = "you@example.com"
 $env:ATLASSIAN_API_TOKEN = "..."
 python -m halo_mcp_atlassian
 ```
@@ -54,28 +54,34 @@ cd D:\CopilotScripts\halo-mcp-atlassian
 pwsh -NoProfile -File .\setup\Install-HaloAtlassianMcp.ps1
 ```
 
-The installer prompts for your Atlassian email + API token, then:
+The installer prompts for your Atlassian email + API token + tenant URL, then:
 
-1. Stores them in **Windows Credential Manager** (Generic credential
+1. Stores email + token in **Windows Credential Manager** (Generic credential
    `halo-atlassian:api-token`). Inspect with
    `cmdkey /list:halo-atlassian:api-token`.
-2. Deploys `mcp-halo-atlassian.ps1` + `CredentialStore.ps1` to
+2. Writes your tenant URLs (Jira + Confluence base) to
+   `%USERPROFILE%\.halo-atlassian.json`. Non-secret, per-user, not
+   committed.
+3. Deploys `mcp-halo-atlassian.ps1` + `CredentialStore.ps1` to
    `D:\CopilotScripts\`.
-3. Merges a `halo-atlassian` entry into `~/.copilot/mcp-config.json`
+4. Merges a `halo-atlassian` entry into `~/.copilot/mcp-config.json`
    (other MCP servers in that file are preserved).
-4. `docker pull`s the pinned image digest.
-5. Runs the container `--check` self-test.
-6. Registers a weekly Windows Scheduled Task
+5. `docker pull`s the pinned image digest.
+6. Runs the container `--check` self-test.
+7. Registers a weekly Windows Scheduled Task
    (`HaloMcpAtlassian-AutoUpdate`, Mondays 03:30 local) that runs
    `setup/Update-HaloAtlassianMcp.ps1` so the repo and image stay fresh
    without any manual steps. Skip with `-SkipAutoUpdate`.
 
-Re-run the installer any time to **rotate your token** — no other steps.
+Re-run the installer any time to **rotate your token** or change tenant.
 
 Non-interactive (CI / scripted):
 
 ```powershell
-.\setup\Install-HaloAtlassianMcp.ps1 -Email you@halostudios.com -Token "$env:ATLASSIAN_TOKEN"
+.\setup\Install-HaloAtlassianMcp.ps1 `
+  -Email you@example.com `
+  -Token "$env:ATLASSIAN_TOKEN" `
+  -JiraUrl "https://your-tenant.atlassian.net"
 ```
 
 `-DryRun` prints every step without writing anything.
@@ -95,7 +101,7 @@ copilot
 |---|---|
 | `no credential found at target 'halo-atlassian:api-token'` | Re-run `Install-HaloAtlassianMcp.ps1`. |
 | `--check failed` | Token expired or revoked; rotate at id.atlassian.com and re-run installer. |
-| `Cannot find image` | Pinned digest is gone from GHCR; pull `latest` of `ghcr.io/v-nguyenmich/halo-mcp-atlassian` or wait for new digest pin. |
+| `Cannot find image` | Pinned digest is gone from upstream GHCR. Either wait for the next auto-bump PR + Monday update, or fork the repo and host your own image (see [Fork and host your own image](#fork-and-host-your-own-image)). |
 | Copilot doesn't see new tools | Restart Copilot CLI session; tool list is cached at session start. |
 
 ### (Optional) Per-user instructions file
@@ -137,6 +143,48 @@ upstream base-image security fixes get picked up even without a Renovate PR.
 The `:stable` tag is only re-pointed after Trivy passes, so consumers
 following the digest pinned in `wrapper/mcp-halo-atlassian.ps1` never get a
 red image.
+
+After a successful promotion, the `bump-wrapper-digest` step in `ci.yml`
+opens an auto-merging PR that updates `$DefaultImage` (and demotes the old
+digest to `$PreviousImage`) in the wrapper. By the time the Monday update
+task on each user's machine runs, the wrapper already points at the new
+green image.
+
+## Fork and host your own image
+
+If you don't want to depend on `ghcr.io/v-nguyenmich/halo-mcp-atlassian`
+(air-gapped network, separate org, compliance, etc.), self-host the image
+under your own GHCR namespace. The wrapper supports it without any code
+changes.
+
+1. **Fork** this repo on GitHub.
+2. Push a commit (or use **Actions → run workflow** on `ci.yml`). CI will
+   build, scan, sign, and push to `ghcr.io/<your-user-or-org>/halo-mcp-atlassian`
+   under your account. Tag `:stable` is promoted only on a green Trivy run.
+3. Make the package public (Profile → Packages → `halo-mcp-atlassian` →
+   Package settings → Change visibility) **or** distribute a `read:packages`
+   PAT for each user.
+4. On each user workstation, point the wrapper at your image. Two options:
+   ```powershell
+   # Option A: per-user env override (no repo edit needed)
+   [Environment]::SetEnvironmentVariable(
+     'HALO_MCP_IMAGE',
+     'ghcr.io/<your-user-or-org>/halo-mcp-atlassian:stable',
+     'User')
+
+   # Option B: edit wrapper/mcp-halo-atlassian.ps1 in your fork
+   #   $DefaultImage  = 'ghcr.io/<your-user-or-org>/halo-mcp-atlassian@sha256:...'
+   #   $PreviousImage = 'ghcr.io/<your-user-or-org>/halo-mcp-atlassian@sha256:<previous>'
+   ```
+5. Users clone **your fork** (not upstream) and run the installer normally.
+   The weekly auto-update task pulls from your fork + your registry.
+6. Optional: enable Renovate + the auto-bump-wrapper PR on your fork by
+   keeping `renovate.json` and `.github/workflows/automerge.yml`. To allow
+   the `bump-wrapper-digest` step to open PRs that re-trigger CI, add a
+   fine-grained PAT with `contents: write` + `pull-requests: write` as the
+   `WRAPPER_BUMP_PAT` secret. Without it, the bump PR opens but CI won't
+   re-run on it (a `GITHUB_TOKEN`-authored PR doesn't trigger workflows),
+   so you'll need to push an empty commit or merge manually.
 
 ## Tools
 
