@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+    inputs:
+      no_cache:
+        description: "Disable buildx cache (used by scheduled rebuilds to force fresh base layers)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -52,6 +59,8 @@ jobs:
         with:
           context: .
           push: true
+          pull: true
+          no-cache: ${{ inputs.no_cache || false }}
           tags: |
             ${{ env.IMAGE }}:${{ github.sha }}
             ${{ env.IMAGE }}:canary
@@ -95,3 +104,12 @@ jobs:
         with:
           name: sbom
           path: sbom.spdx.json
+
+      # Promote to :stable only after Trivy passed, image is signed, and SBOM is attested.
+      # Consumers who follow :stable (auto-update scheduled task) get only known-good images.
+      - name: Promote to :stable
+        if: github.event_name == 'push' || github.event_name == 'workflow_call' || github.event_name == 'schedule'
+        run: |
+          docker buildx imagetools create \
+            --tag ${{ env.IMAGE }}:stable \
+            ${{ env.IMAGE }}:${{ github.sha }}

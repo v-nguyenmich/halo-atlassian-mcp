@@ -65,6 +65,10 @@ The installer prompts for your Atlassian email + API token, then:
    (other MCP servers in that file are preserved).
 4. `docker pull`s the pinned image digest.
 5. Runs the container `--check` self-test.
+6. Registers a weekly Windows Scheduled Task
+   (`HaloMcpAtlassian-AutoUpdate`, Mondays 03:30 local) that runs
+   `setup/Update-HaloAtlassianMcp.ps1` so the repo and image stay fresh
+   without any manual steps. Skip with `-SkipAutoUpdate`.
 
 Re-run the installer any time to **rotate your token** — no other steps.
 
@@ -102,9 +106,37 @@ Copilot doesn't have to look them up each session.
 
 ### Updating the pinned image
 
-When a new digest is promoted, edit `wrapper/mcp-halo-atlassian.ps1`
-(`$DefaultImage` / `$PreviousImage` lines), commit, then re-run the installer
-on each workstation to redeploy.
+You **don't have to do anything** — the installer registers a weekly
+Scheduled Task (`HaloMcpAtlassian-AutoUpdate`) that runs
+`setup/Update-HaloAtlassianMcp.ps1`:
+
+1. `git pull --ff-only` on the cloned repo
+2. Parses the new `$DefaultImage` digest from the freshly pulled wrapper
+3. `docker pull <digest>`
+4. Redeploys wrapper + helper to `D:\CopilotScripts\`
+
+Logs land in `%LOCALAPPDATA%\HaloMcp\update.log`. Run it on demand with:
+
+```powershell
+pwsh -NoProfile -File .\setup\Update-HaloAtlassianMcp.ps1
+```
+
+Remove the auto-update task with:
+
+```powershell
+Unregister-ScheduledTask -TaskName HaloMcpAtlassian-AutoUpdate -Confirm:$false
+```
+
+#### How the digest itself gets bumped
+On the repo side, **Renovate** (`renovate.json`) watches the distroless base
+image and the GitHub Actions used by CI. When a new digest is available it
+opens a PR; `.github/workflows/automerge.yml` auto-approves and squash-merges
+once CI is green (Trivy HIGH/CRITICAL gate + signed image + SBOM attestation).
+The weekly `rebuild.yml` job builds with `pull: true` / `no-cache: true` so
+upstream base-image security fixes get picked up even without a Renovate PR.
+The `:stable` tag is only re-pointed after Trivy passes, so consumers
+following the digest pinned in `wrapper/mcp-halo-atlassian.ps1` never get a
+red image.
 
 ## Tools
 

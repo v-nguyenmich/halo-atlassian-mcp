@@ -10,7 +10,11 @@
 #      into %USERPROFILE%\.copilot\mcp-config.json.
 #   6. docker pull's the pinned image digest.
 #   7. Runs the container's --check self-test.
-#   8. Prints next steps.
+#   8. Registers a weekly Windows Scheduled Task that runs
+#      Update-HaloAtlassianMcp.ps1 (git pull + docker pull + redeploy wrapper)
+#      so the user gets auto-maintenance with zero manual steps. Skip with
+#      -SkipAutoUpdate.
+#   9. Prints next steps.
 #
 # Idempotent. Re-run to rotate the token (no other side effects).
 #
@@ -34,7 +38,9 @@ param(
     [string]$DeployRoot = 'D:\CopilotScripts',
     [switch]$DryRun,
     [switch]$SkipPull,
-    [switch]$SkipCheck
+    [switch]$SkipCheck,
+    [switch]$SkipAutoUpdate,
+    [string]$AutoUpdateTaskName = 'HaloMcpAtlassian-AutoUpdate'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -231,7 +237,49 @@ else {
     }
 }
 
-# ---- 8. Next steps ----------------------------------------------------------
+# ---- 8. Register weekly auto-update scheduled task --------------------------
+$UpdateScript = Join-Path $RepoRoot 'setup\Update-HaloAtlassianMcp.ps1'
+if ($SkipAutoUpdate) {
+    Write-Warn2 'SkipAutoUpdate set; not registering scheduled task.'
+}
+elseif (-not (Test-Path $UpdateScript)) {
+    Write-Warn2 "Update script missing ($UpdateScript); skipping auto-update task."
+}
+else {
+    Write-Step "Registering weekly auto-update task: $AutoUpdateTaskName"
+    if ($DryRun) {
+        Write-Dry "Register-ScheduledTask -TaskName $AutoUpdateTaskName -Action 'pwsh -File $UpdateScript' -Trigger 'Weekly Mon 03:30'"
+    }
+    else {
+        try {
+            $pwshExe = (Get-Command pwsh -ErrorAction Stop).Source
+            $action  = New-ScheduledTaskAction `
+                -Execute $pwshExe `
+                -Argument ("-NoProfile -ExecutionPolicy Bypass -File `"$UpdateScript`" -RepoRoot `"$RepoRoot`" -DeployRoot `"$DeployRoot`"")
+            $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 3:30am
+            $settings = New-ScheduledTaskSettingsSet `
+                -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+                -StartWhenAvailable `
+                -ExecutionTimeLimit (New-TimeSpan -Minutes 15) `
+                -MultipleInstances IgnoreNew
+            $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+
+            Register-ScheduledTask `
+                -TaskName $AutoUpdateTaskName `
+                -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
+                -Description 'Weekly git pull + docker pull for halo-mcp-atlassian. Keeps the pinned image and wrapper fresh without user action.' `
+                -Force | Out-Null
+            Write-Ok "scheduled task registered (Mondays 03:30 local; logs at %LOCALAPPDATA%\HaloMcp\update.log)"
+            Write-Ok "to remove: Unregister-ScheduledTask -TaskName $AutoUpdateTaskName -Confirm:`$false"
+        }
+        catch {
+            Write-Warn2 "Could not register scheduled task: $($_.Exception.Message)"
+            Write-Warn2 "Run setup\Update-HaloAtlassianMcp.ps1 manually, or schedule it yourself."
+        }
+    }
+}
+
+# ---- 9. Next steps ----------------------------------------------------------
 Write-Host ''
 Write-Host '==> Done.' -ForegroundColor Green
 Write-Host ''

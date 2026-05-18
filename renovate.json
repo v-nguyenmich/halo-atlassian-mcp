@@ -1,0 +1,47 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":timezone(America/Los_Angeles)"
+  ],
+  "schedule": ["before 6am on monday"],
+  "labels": ["renovate"],
+  "prConcurrentLimit": 5,
+  "pinDigests": true,
+  "rangeStrategy": "bump",
+  "packageRules": [
+    {
+      "description": "Auto-merge digest-only Docker base bumps once CI is green",
+      "matchManagers": ["dockerfile"],
+      "matchUpdateTypes": ["digest", "pin", "pinDigest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Auto-merge GitHub Actions digest pins and patch bumps",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["digest", "pin", "pinDigest", "patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Auto-merge Python patch updates from pip",
+      "matchManagers": ["pip_requirements", "pep621"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"],
+    "automerge": true,
+    "platformAutomerge": true
+  },
+  "osvVulnerabilityAlerts": true
+}

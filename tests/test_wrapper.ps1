@@ -74,11 +74,25 @@ try {
     Assert { ($out -join "`n") -match 'DRYRUN.*Set-HaloAtlassianCredential' } 'installer logs credential write step'
     Assert { ($out -join "`n") -match 'DRYRUN.*Copy-Item.*mcp-halo-atlassian\.ps1' } 'installer logs wrapper copy step'
     Assert { ($out -join "`n") -match 'DRYRUN.*docker pull' } 'installer logs docker pull step'
+    Assert { ($out -join "`n") -match 'DRYRUN.*Register-ScheduledTask' } 'installer logs auto-update task registration'
     Assert { -not (Test-Path $tmpDeploy) } 'DryRun did not create deploy dir'
 }
 finally {
     if (Test-Path $tmpDeploy) { Remove-Item $tmpDeploy -Recurse -Force }
 }
+
+# --- Update-HaloAtlassianMcp.ps1 script sanity -------------------------------
+Write-Host '== Update script ==' -ForegroundColor Cyan
+$Updater = Join-Path $RepoRoot 'setup\Update-HaloAtlassianMcp.ps1'
+Assert { Test-Path $Updater } 'updater file exists'
+Assert {
+    $errors = $null
+    [void][System.Management.Automation.Language.Parser]::ParseFile($Updater, [ref]$null, [ref]$errors)
+    $errors.Count -eq 0
+} 'updater parses without syntax errors'
+Assert {
+    (Get-Content $Updater -Raw) -match '\.SYNOPSIS\s*\r?\n\s*Pulls the latest'
+} 'updater has synopsis'
 
 Write-Host ''
 if ($failures -eq 0) {
