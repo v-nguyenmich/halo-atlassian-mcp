@@ -44,8 +44,9 @@ The skill assumes:
 1. The `halo-atlassian` MCP server (this repo) is configured in
    `~/.copilot/mcp-config.json` under `mcpServers.halo-atlassian`.
 2. An Atlassian API token reachable from PowerShell via the helper
-   `D:\CopilotScripts\CredentialStore.ps1` — `Get-HaloAtlassianCredential`
-   returns `{ Email; Token }` from the Windows Credential Manager generic
-   credential `halo-atlassian:api-token`. The skill will not prompt for
-   the token in chat.
+   `CredentialStore.ps1` deployed alongside the wrapper (default
+   `%LOCALAPPDATA%\Programs\halo-mcp-atlassian\CredentialStore.ps1`) —
+   `Get-HaloAtlassianCredential` returns `{ Email; Token }` from the
+   Windows Credential Manager generic credential `halo-atlassian:api-token`.
+   The skill will not prompt for the token in chat.
 3. Atlassian email comes from the credential's UserName field.

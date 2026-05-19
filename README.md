@@ -49,10 +49,14 @@ fresh Windows workstation.
 ### Install
 
 ```powershell
-git clone https://github.com/v-nguyenmich/halo-atlassian-mcp.git D:\CopilotScripts\halo-mcp-atlassian
-cd D:\CopilotScripts\halo-mcp-atlassian
+git clone https://github.com/v-nguyenmich/halo-atlassian-mcp.git
+cd halo-atlassian-mcp
 pwsh -NoProfile -File .\setup\Install-HaloAtlassianMcp.ps1
 ```
+
+Clone wherever you like — the installer is location-independent and writes
+the runtime to `%LOCALAPPDATA%\Programs\halo-mcp-atlassian` by default.
+Override with `-DeployRoot <path>` if you want it somewhere else.
 
 The installer prompts for your Atlassian email + API token + tenant URL, then:
 
@@ -63,9 +67,11 @@ The installer prompts for your Atlassian email + API token + tenant URL, then:
    `%USERPROFILE%\.halo-atlassian.json`. Non-secret, per-user, not
    committed.
 3. Deploys `mcp-halo-atlassian.ps1` + `CredentialStore.ps1` to
-   `D:\CopilotScripts\`.
+   `%LOCALAPPDATA%\Programs\halo-mcp-atlassian\` (override with `-DeployRoot`).
 4. Merges a `halo-atlassian` entry into `~/.copilot/mcp-config.json`
-   (other MCP servers in that file are preserved).
+   (other MCP servers in that file are **preserved**; the file is backed
+   up to `mcp-config.json.bak` before any change; if a `halo-atlassian`
+   entry already exists, the installer warns and overwrites).
 5. `docker pull`s the pinned image digest.
 6. Runs the container `--check` self-test.
 7. Registers a weekly Windows Scheduled Task
@@ -86,6 +92,37 @@ Non-interactive (CI / scripted):
 
 `-DryRun` prints every step without writing anything.
 
+### Multi-tenant / non-Halo deployment
+
+The installer is tenant-agnostic. If you're not on the Halo Studios tenant,
+pass your own URLs:
+
+```powershell
+.\setup\Install-HaloAtlassianMcp.ps1 `
+  -JiraUrl "https://acme.atlassian.net" `
+  -ConfluenceUrl "https://acme.atlassian.net"
+```
+
+URLs are validated (must be `https://`, must end in `.atlassian.net`) and
+written to `%USERPROFILE%\.halo-atlassian.json`. The wrapper resolves the
+tenant in this order: explicit env var (`ATLASSIAN_JIRA_URL` /
+`ATLASSIAN_CONFLUENCE_URL`) → `tenant.json` next to the wrapper →
+`%USERPROFILE%\.halo-atlassian.json`. There is **no hardcoded tenant**
+fallback in the wrapper or installer.
+
+`-NonInteractive` requires `-Email`, `-Token`, `-JiraUrl`, and
+`-ConfluenceUrl` to be supplied up front; it fails fast with a helpful
+error naming the missing param if any is omitted.
+
+### Coexistence with other MCP servers
+
+The installer **preserves any existing `mcpServers` entries** in
+`~/.copilot/mcp-config.json`. Before any write it backs up the file to
+`mcp-config.json.bak`. If a `halo-atlassian` entry already exists, it is
+overwritten in place (the installer prints a warning so the change is
+visible). After merge, the installer prints a one-line summary of which
+sibling servers were preserved.
+
 ### Finish
 
 ```powershell
@@ -103,6 +140,11 @@ copilot
 | `--check failed` | Token expired or revoked; rotate at id.atlassian.com and re-run installer. |
 | `Cannot find image` | Pinned digest is gone from upstream GHCR. Either wait for the next auto-bump PR + Monday update, or fork the repo and host your own image (see [Fork and host your own image](#fork-and-host-your-own-image)). |
 | Copilot doesn't see new tools | Restart Copilot CLI session; tool list is cached at session start. |
+| Docker not found / not running | Start Docker Desktop. Wrapper preflights with `docker info` and prints a friendly error if the engine isn't reachable. |
+| 401 from Atlassian | Token revoked or expired. Rotate at id.atlassian.com → re-run `Install-HaloAtlassianMcp.ps1`. |
+| Weekly update task not running | `Get-ScheduledTask HaloMcpAtlassian-AutoUpdate` and check `LastRunTime`. Logs at `%LOCALAPPDATA%\HaloMcp\update.log` (rotated at 1 MB, keeps 5). |
+| Installer fails with "must be https://..." | `-JiraUrl` / `-ConfluenceUrl` have to be `https://...atlassian.net` (no path, no `/wiki`). |
+| Wrapper exits "no tenant URL configured" | Either re-run installer (writes `%USERPROFILE%\.halo-atlassian.json`) or set `ATLASSIAN_JIRA_URL` / `ATLASSIAN_CONFLUENCE_URL` env vars. |
 
 ### (Optional) Per-user instructions file
 
@@ -119,7 +161,8 @@ Scheduled Task (`HaloMcpAtlassian-AutoUpdate`) that runs
 1. `git pull --ff-only` on the cloned repo
 2. Parses the new `$DefaultImage` digest from the freshly pulled wrapper
 3. `docker pull <digest>`
-4. Redeploys wrapper + helper to `D:\CopilotScripts\`
+4. Redeploys wrapper + helper to the configured deploy root
+   (default `%LOCALAPPDATA%\Programs\halo-mcp-atlassian\`)
 
 Logs land in `%LOCALAPPDATA%\HaloMcp\update.log`. Run it on demand with:
 
