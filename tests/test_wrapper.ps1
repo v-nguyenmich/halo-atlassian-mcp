@@ -444,7 +444,14 @@ $readme         = Get-Content (Join-Path $RepoRoot 'README.md') -Raw
 $wrapperReadme  = Get-Content (Join-Path $RepoRoot 'wrapper\README.md') -Raw
 $skillsReadme   = Get-Content (Join-Path $RepoRoot 'skills\README.md') -Raw
 $skillMd        = Get-Content (Join-Path $RepoRoot 'skills\halo-atlassian\SKILL.md') -Raw
-Assert { $readme        -notmatch 'D:\\CopilotScripts' } 'README has no D:\CopilotScripts refs'
+Assert {
+    # Allowed only inside the "Migrating from D:\CopilotScripts" subsection.
+    $sections = [regex]::Split($readme, '(?m)^### ')
+    $offenders = $sections | Where-Object {
+        $_ -match 'D:\\CopilotScripts' -and $_ -notmatch '^Migrating from'
+    }
+    $offenders.Count -eq 0
+} 'README has no D:\CopilotScripts refs'
 Assert { $wrapperReadme -notmatch 'D:\\CopilotScripts' } 'wrapper/README has no D:\CopilotScripts refs'
 Assert { $skillsReadme  -notmatch 'D:\\CopilotScripts' } 'skills/README has no D:\CopilotScripts refs'
 Assert { $skillMd       -notmatch 'D:\\CopilotScripts' } 'skills/halo-atlassian/SKILL.md has no D:\CopilotScripts refs'
@@ -470,6 +477,8 @@ Assert { $uninst -match 'cmdkey.*delete' }             'uninstaller deletes cred
 Assert { $uninst -match 'mcp-config\.json\.bak|"\$McpConfigPath\.bak"' } 'uninstaller backs up mcp-config before edit'
 Assert { $uninst -match '\[switch\]\$KeepCredential' } 'uninstaller supports -KeepCredential'
 Assert { $uninst -match '\[switch\]\$KeepTenantConfig' } 'uninstaller supports -KeepTenantConfig'
+Assert { $uninst -match '\[switch\]\$KeepSkill' }        'uninstaller supports -KeepSkill'
+Assert { $uninst -match '\$SkillPath' }                  'uninstaller has -SkillPath parameter'
 
 $smoke = Get-Content $SmokeTest -Raw
 Assert { $smoke -match 'cmdkey.*list' }              'smoke-test checks credential via cmdkey'
@@ -477,6 +486,19 @@ Assert { $smoke -match 'docker info' }               'smoke-test pings docker en
 Assert { $smoke -match 'image inspect' }             'smoke-test checks pinned image cached'
 Assert { $smoke -match '\.atlassian\.net' }          'smoke-test validates tenant URL shape'
 Assert { $smoke -match '\[switch\]\$SkipImageCheck' -and $smoke -match '\[switch\]\$SkipContainerCheck' } 'smoke-test has skip switches'
+Assert { $smoke -match '\[switch\]\$SkipSkillCheck' }    'smoke-test has -SkipSkillCheck switch'
+Assert { $smoke -match 'skill deployed' }                'smoke-test checks skill deployment'
+
+# --- Skill auto-install + legacy cleanup -----------------------------------
+Write-Host ''
+Write-Host '== Skill install + legacy cleanup ==' -ForegroundColor Cyan
+$inst = Get-Content (Join-Path $RepoRoot 'setup\Install-HaloAtlassianMcp.ps1') -Raw
+Assert { $inst -match '\[string\]\$SkillRoot' }     'installer has -SkillRoot parameter'
+Assert { $inst -match '\[switch\]\$SkipSkill' }     'installer has -SkipSkill switch'
+Assert { $inst -match '\[switch\]\$SkipLegacyCleanup' } 'installer has -SkipLegacyCleanup switch'
+Assert { $inst -match '\$LegacyDeployRoots' }       'installer declares $LegacyDeployRoots'
+Assert { $inst -match 'D:\\CopilotScripts' }      'installer lists D:\CopilotScripts as a legacy root'
+Assert { $inst -match 'halo-atlassian' -and $inst -match '\$SkillSrc' -and $inst -match '\$SkillDst' } 'installer has skill src/dst paths'
 
 # Functional: uninstaller DryRun against a fake install exits 0 and prints summary.
 $tmpDeploy = Join-Path $env:TEMP ("halo-uninst-deploy-" + [guid]::NewGuid().ToString('N'))

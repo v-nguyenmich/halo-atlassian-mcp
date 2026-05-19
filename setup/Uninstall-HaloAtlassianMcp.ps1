@@ -18,12 +18,14 @@ param(
     [string]$DeployRoot         = (Join-Path $env:LOCALAPPDATA 'Programs\halo-mcp-atlassian'),
     [string]$TenantConfigPath   = (Join-Path $env:USERPROFILE '.halo-atlassian.json'),
     [string]$McpConfigPath      = (Join-Path $env:USERPROFILE '.copilot\mcp-config.json'),
+    [string]$SkillPath          = (Join-Path $env:USERPROFILE '.copilot\skills\halo-atlassian'),
     [string]$AutoUpdateTaskName = 'HaloMcpAtlassian-AutoUpdate',
     [string]$CredentialTarget   = 'halo-atlassian:api-token',
     [switch]$DryRun,
     [switch]$NonInteractive,
     [switch]$KeepCredential,
-    [switch]$KeepTenantConfig
+    [switch]$KeepTenantConfig,
+    [switch]$KeepSkill
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,6 +41,7 @@ Write-Host '=== halo-mcp-atlassian uninstaller ===' -ForegroundColor Cyan
 Write-Host ("  deploy root         : {0}" -f $DeployRoot)
 Write-Host ("  mcp-config path     : {0}" -f $McpConfigPath)
 Write-Host ("  tenant config       : {0}{1}" -f $TenantConfigPath, $(if ($KeepTenantConfig) { ' (KEEP)' } else { '' }))
+Write-Host ("  skill path          : {0}{1}" -f $SkillPath, $(if ($KeepSkill) { ' (KEEP)' } else { '' }))
 Write-Host ("  scheduled task      : {0}" -f $AutoUpdateTaskName)
 Write-Host ("  credential target   : {0}{1}" -f $CredentialTarget, $(if ($KeepCredential) { ' (KEEP)' } else { '' }))
 Write-Host ''
@@ -115,6 +118,23 @@ if (-not $KeepTenantConfig) {
 } else {
     Write-Action 'keep' "tenant config (KeepTenantConfig)"
     $summary['tenant_config'] = 'kept'
+}
+
+# ---- 4b. Copilot CLI skill --------------------------------------------------
+if (-not $KeepSkill) {
+    if (Test-Path $SkillPath) {
+        Write-Action 'remove' ("skill '{0}'" -f $SkillPath)
+        if (-not $DryRun) {
+            Remove-Item -Recurse -Force $SkillPath
+        }
+        $summary['skill'] = 'removed'
+    } else {
+        Write-Action 'skip' "skill does not exist"
+        $summary['skill'] = 'absent'
+    }
+} else {
+    Write-Action 'keep' "skill (KeepSkill)"
+    $summary['skill'] = 'kept'
 }
 
 # ---- 5. Credential ----------------------------------------------------------

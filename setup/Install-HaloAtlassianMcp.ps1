@@ -43,10 +43,13 @@ param(
     [string]$ConfluenceUrl,
     [string]$DeployRoot = (Join-Path $env:LOCALAPPDATA 'Programs\halo-mcp-atlassian'),
     [string]$TenantConfigPath = (Join-Path $env:USERPROFILE '.halo-atlassian.json'),
+    [string]$SkillRoot = (Join-Path $env:USERPROFILE '.copilot\skills'),
     [switch]$DryRun,
     [switch]$SkipPull,
     [switch]$SkipCheck,
     [switch]$SkipAutoUpdate,
+    [switch]$SkipSkill,
+    [switch]$SkipLegacyCleanup,
     [switch]$NonInteractive,
     [string]$AutoUpdateTaskName = 'HaloMcpAtlassian-AutoUpdate'
 )
@@ -57,10 +60,20 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot       = Split-Path -Parent $PSScriptRoot
 $WrapperSrc     = Join-Path $RepoRoot 'wrapper\mcp-halo-atlassian.ps1'
 $HelperSrc      = Join-Path $RepoRoot 'wrapper\CredentialStore.ps1'
+$SkillSrc       = Join-Path $RepoRoot 'skills\halo-atlassian'
 $WrapperDst     = Join-Path $DeployRoot 'mcp-halo-atlassian.ps1'
 $HelperDst      = Join-Path $DeployRoot 'CredentialStore.ps1'
+$SkillDst       = Join-Path $SkillRoot 'halo-atlassian'
 $ConfigDir      = Join-Path $env:USERPROFILE '.copilot'
 $ConfigPath     = Join-Path $ConfigDir 'mcp-config.json'
+
+# Legacy deploy paths to detect + offer to clean during migration. A user
+# coming from the original D:\CopilotScripts layout has these orphans after
+# the default flip; the installer should not leave stale copies behind that
+# could be picked up by an out-of-date mcp-config entry.
+$LegacyDeployRoots = @(
+    'D:\CopilotScripts'
+)
 
 if (-not (Test-Path $WrapperSrc)) { throw "wrapper source missing: $WrapperSrc" }
 if (-not (Test-Path $HelperSrc))  { throw "helper source missing: $HelperSrc" }
@@ -301,6 +314,72 @@ else {
     catch {
         Write-Error "Failed to update mcp-config.json: $_"
         exit 3
+    }
+}
+
+# ---- 5b. Install / refresh Copilot CLI skill -------------------------------
+if (-not $SkipSkill) {
+    Write-Step "Installing Copilot CLI skill to $SkillDst"
+    if (-not (Test-Path $SkillSrc)) {
+        Write-Warn2 "skill source missing at $SkillSrc; skipping (use -SkipSkill to silence this)"
+    }
+    elseif ($DryRun) {
+        Write-Dry "Copy-Item -Recurse $SkillSrc -> $SkillDst"
+    }
+    else {
+        try {
+            New-Item -ItemType Directory -Path $SkillRoot -Force | Out-Null
+            if (Test-Path $SkillDst) {
+                # Refresh in place so any user-local changes outside the
+                # repo-tracked files are wiped; this matches wrapper deploy.
+                Remove-Item -Recurse -Force $SkillDst
+            }
+            Copy-Item -Recurse $SkillSrc $SkillDst -Force
+            Write-Ok "skill deployed: $SkillDst (run /skills in Copilot to toggle on)"
+        }
+        catch {
+            Write-Warn2 "skill install failed: $_  (continuing; install manually from skills\halo-atlassian)"
+        }
+    }
+}
+
+# ---- 5c. Detect + offer to clean legacy D:\CopilotScripts deploy -----------
+# Users who installed prior to the deploy-root flip have orphaned wrapper +
+# helper at the old path. They're not used by anything any more (the new
+# mcp-config entry points at $WrapperDst above) but leaving them around is
+# confusing. Detect, list, prompt — or auto-skip with -SkipLegacyCleanup.
+if (-not $SkipLegacyCleanup) {
+    $legacyHits = @()
+    foreach ($root in $LegacyDeployRoots) {
+        if ([string]::Equals($root, $DeployRoot, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        foreach ($leaf in @('mcp-halo-atlassian.ps1','CredentialStore.ps1')) {
+            $candidate = Join-Path $root $leaf
+            if (Test-Path $candidate) { $legacyHits += $candidate }
+        }
+    }
+    if ($legacyHits.Count -gt 0) {
+        Write-Step 'Detected legacy install files (from a pre-LOCALAPPDATA deploy)'
+        $legacyHits | ForEach-Object { Write-Warn2 "legacy: $_" }
+        $doRemove = $false
+        if ($DryRun) {
+            Write-Dry "Remove-Item on $($legacyHits.Count) legacy file(s)"
+        }
+        elseif ($NonInteractive) {
+            Write-Warn2 'NonInteractive mode; leaving legacy files in place. Re-run with -SkipLegacyCleanup:$false interactively or delete manually.'
+        }
+        else {
+            $resp = Read-Host "Remove these $($legacyHits.Count) legacy file(s)? They are no longer referenced by mcp-config. [y/N]"
+            $doRemove = ($resp -match '^[yY]')
+        }
+        if ($doRemove) {
+            foreach ($f in $legacyHits) {
+                try { Remove-Item -Force $f; Write-Ok "removed: $f" }
+                catch { Write-Warn2 "could not remove $f : $_" }
+            }
+        }
+        elseif (-not $DryRun -and -not $NonInteractive) {
+            Write-Warn2 'Leaving legacy files in place. Re-run any time to clean.'
+        }
     }
 }
 

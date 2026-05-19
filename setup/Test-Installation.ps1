@@ -24,9 +24,11 @@ param(
     [string]$DeployRoot       = (Join-Path $env:LOCALAPPDATA 'Programs\halo-mcp-atlassian'),
     [string]$TenantConfigPath = (Join-Path $env:USERPROFILE '.halo-atlassian.json'),
     [string]$McpConfigPath    = (Join-Path $env:USERPROFILE '.copilot\mcp-config.json'),
+    [string]$SkillPath        = (Join-Path $env:USERPROFILE '.copilot\skills\halo-atlassian'),
     [string]$CredentialTarget = 'halo-atlassian:api-token',
     [switch]$SkipImageCheck,
-    [switch]$SkipContainerCheck
+    [switch]$SkipContainerCheck,
+    [switch]$SkipSkillCheck
 )
 
 $ErrorActionPreference = 'Continue'
@@ -133,6 +135,13 @@ if (-not $SkipContainerCheck) {
             Remove-Item Env:\HALO_MCP_NO_PULL -ErrorAction SilentlyContinue
         }
     } "run setup\Install-HaloAtlassianMcp.ps1 — token may be expired"
+}
+
+# 7. Skill deployed
+if (-not $SkipSkillCheck) {
+    Check "Copilot CLI skill deployed at $SkillPath" {
+        Test-Path (Join-Path $SkillPath 'SKILL.md')
+    } "re-run installer or copy skills\halo-atlassian to $SkillPath"
 }
 
 Write-Host ''
