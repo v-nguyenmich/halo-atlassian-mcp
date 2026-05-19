@@ -86,6 +86,84 @@ Non-interactive (CI / scripted):
 
 `-DryRun` prints every step without writing anything.
 
+### Optional — enable Assets write tools
+
+By default only **read** tools for Atlassian Assets (CMDB) register
+(`assets_aql_search`, `assets_get_object`, `assets_list_object_types`,
+etc.). The three create/update/delete tools are gated behind two env
+vars the wrapper forwards into the container.
+
+Set both as **User** environment variables so Copilot CLI (and the
+wrapper it launches) inherit them:
+
+```powershell
+# 1. Master switch — enable Assets create/update/delete tools
+[Environment]::SetEnvironmentVariable('HALO_MCP_ASSETS_WRITE', '1', 'User')
+
+# 2. Allow-list of objectType IDs the write tools may touch.
+#    Discover IDs first: ask Copilot to run assets_list_object_types(<schemaId>)
+[Environment]::SetEnvironmentVariable(
+    'HALO_MCP_ASSETS_WRITE_OBJECT_TYPES',
+    '<comma-separated numeric IDs>',
+    'User')
+
+# 3. Close and reopen your terminal so the new env vars are loaded, then:
+copilot
+```
+
+Verify in a fresh session:
+
+```powershell
+# In Copilot CLI:
+/tools   # confirm halo-atlassian-assets_create_object etc. now appear
+```
+
+Disable by clearing the master switch:
+
+```powershell
+[Environment]::SetEnvironmentVariable('HALO_MCP_ASSETS_WRITE', $null, 'User')
+```
+
+Notes:
+- Write tools require the API token's user to have **Assets write
+  permission** on the target schema/objectType. Read access is not enough.
+- The allow-list is a safety net: if `HALO_MCP_ASSETS_WRITE_OBJECT_TYPES`
+  is empty or missing, write tools refuse to run even when the master
+  switch is on.
+- Both vars are User-scope (not Machine), so this is per-Windows-user and
+  doesn't need admin.
+
+### Multi-tenant / non-Halo deployment
+
+The installer is tenant-agnostic. If you're not on the Halo Studios
+tenant, pass your own URLs (or just respond to the prompts):
+
+```powershell
+.\setup\Install-HaloAtlassianMcp.ps1 `
+  -JiraUrl "https://your-tenant.atlassian.net" `
+  -ConfluenceUrl "https://your-tenant.atlassian.net"
+```
+
+URLs are validated (must be `https://`, must end in `.atlassian.net`)
+and written to `%USERPROFILE%\.halo-atlassian.json`. The wrapper
+resolves the tenant in this order: explicit env var
+(`ATLASSIAN_JIRA_URL` / `ATLASSIAN_CONFLUENCE_URL`) →
+`%USERPROFILE%\.halo-atlassian.json`. There is **no hardcoded tenant**
+fallback in the wrapper or installer.
+
+`-NonInteractive` requires `-Email`, `-Token`, `-JiraUrl`, and
+`-ConfluenceUrl` up front; it fails fast naming the missing param if
+any is omitted.
+
+### Coexistence with other MCP servers
+
+The installer **preserves any existing `mcpServers` entries** in
+`~/.copilot/mcp-config.json`. Before any write it backs up the file to
+`mcp-config.json.bak`. If a `halo-atlassian` entry already exists, it is
+overwritten in place (a warning is printed so the change is visible).
+After merge, the installer prints a one-line summary of which sibling
+servers were preserved.
+
 ### Finish
 
 ```powershell
