@@ -310,6 +310,60 @@ finally {
     if (Test-Path $tmpTenant) { Remove-Item $tmpTenant -Force }
 }
 
+# --- Installer UX (PR5) ------------------------------------------------------
+Write-Host ''
+Write-Host '== Installer UX ==' -ForegroundColor Cyan
+Assert {
+    $installerText -match '\[switch\]\$NonInteractive'
+} 'installer exposes -NonInteractive switch'
+Assert {
+    $installerText -match "throw '-NonInteractive set but -Email not provided"
+} '-NonInteractive throws on missing -Email'
+Assert {
+    $installerText -match "throw '-NonInteractive set but -Token not provided"
+} '-NonInteractive throws on missing -Token'
+Assert {
+    $installerText -match "throw '-NonInteractive set but -JiraUrl not provided"
+} '-NonInteractive throws on missing -JiraUrl'
+Assert {
+    $installerText -match 'Pre-flight summary'
+} 'installer prints pre-flight summary'
+Assert {
+    $installerText -match "rotate / refresh"
+} 'pre-flight summary distinguishes fresh vs rotate'
+Assert {
+    $installerText -match 'Detected prior install'
+} 'idempotency banner present'
+Assert {
+    $installerText -match 'Auto-update next run'
+} 'final output prints next scheduled run time'
+Assert {
+    $installerText -match 'Get-Command copilot'
+} 'next-steps branches on whether copilot CLI is installed'
+
+# Functional: -NonInteractive without required params fails fast.
+$tmpDeploy = Join-Path $env:TEMP ("halo-mcp-ni-" + [guid]::NewGuid().ToString('N'))
+$tmpTenant = Join-Path $env:TEMP ("halo-tenant-ni-" + [guid]::NewGuid().ToString('N') + ".json")
+try {
+    $err = pwsh -NoProfile -File $Installer -NonInteractive -DryRun `
+        -DeployRoot $tmpDeploy -TenantConfigPath $tmpTenant 2>&1
+    Assert { $LASTEXITCODE -ne 0 } '-NonInteractive without -Email exits non-zero'
+    Assert { ($err -join "`n") -match 'NonInteractive set but -Email' } 'helpful error names the missing param'
+
+    # Happy path: all params supplied + NonInteractive (no prompt, no pause).
+    $out = pwsh -NoProfile -File $Installer -NonInteractive -DryRun `
+        -Email 'a@b.c' -Token 'x' `
+        -JiraUrl 'https://t.atlassian.net' -ConfluenceUrl 'https://t.atlassian.net/wiki' `
+        -DeployRoot $tmpDeploy -TenantConfigPath $tmpTenant 2>&1
+    Assert { $LASTEXITCODE -eq 0 } "-NonInteractive happy path exits 0 (got $LASTEXITCODE)"
+    Assert { ($out -join "`n") -match 'Pre-flight summary' } 'pre-flight summary printed in NonInteractive mode'
+    Assert { ($out -join "`n") -match 'Fresh install' } 'fresh-install banner printed when no prior install'
+}
+finally {
+    if (Test-Path $tmpDeploy) { Remove-Item $tmpDeploy -Recurse -Force }
+    if (Test-Path $tmpTenant) { Remove-Item $tmpTenant -Force }
+}
+
 Write-Host ''
 if ($failures -eq 0) {
     Write-Host "All checks passed." -ForegroundColor Green
