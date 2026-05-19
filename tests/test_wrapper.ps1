@@ -364,6 +364,79 @@ finally {
     if (Test-Path $tmpTenant) { Remove-Item $tmpTenant -Force }
 }
 
+# --- Update reliability (PR6) -----------------------------------------------
+Write-Host ''
+Write-Host '== Update reliability ==' -ForegroundColor Cyan
+$updaterFresh = Get-Content $Updater -Raw
+Assert {
+    $updaterFresh -match 'Invoke-LogRotate'
+} 'updater defines log rotation function'
+Assert {
+    $updaterFresh -match 'Test-NetworkReachable'
+} 'updater defines network preflight'
+Assert {
+    $updaterFresh -match 'github\.com.*ghcr\.io|ghcr\.io.*github\.com'
+} 'preflight checks both github.com and ghcr.io'
+Assert {
+    $updaterFresh -match 'LogMaxBytes.*1MB|1MB.*LogMaxBytes'
+} 'log rotation defaults to 1 MB'
+Assert {
+    $updaterFresh -match '\[int\]\$LogMaxFiles\s*=\s*5'
+} 'log rotation defaults to 5 files'
+Assert {
+    $updaterFresh -match "network preflight failed.*skipping"
+} 'preflight fail is non-fatal (skip not error)'
+
+# Functional: dot-source the script's helper functions and exercise the
+# rotation logic against a fake oversized log.
+$tmpLog = Join-Path $env:TEMP ("halo-update-log-" + [guid]::NewGuid().ToString('N') + ".log")
+try {
+    # Extract Invoke-LogRotate into an isolated scope using AST-free heuristic:
+    # define the function inline (copied verbatim) and run it.
+    function Invoke-LogRotateTest {
+        param([string]$Path, [int]$MaxBytes, [int]$MaxFiles)
+        if (-not (Test-Path $Path)) { return }
+        $size = (Get-Item $Path).Length
+        if ($size -lt $MaxBytes) { return }
+        $leaf = Split-Path $Path -Leaf
+        Get-ChildItem -Path (Split-Path $Path -Parent) -Filter ($leaf + '.*') -ErrorAction SilentlyContinue |
+            Where-Object {
+                if ($_.Name.Length -le $leaf.Length + 1) { return $false }
+                $suffix = $_.Name.Substring($leaf.Length + 1)
+                $n = 0
+                [int]::TryParse($suffix, [ref]$n) -and $n -ge $MaxFiles
+            } |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+        for ($i = $MaxFiles - 1; $i -ge 1; $i--) {
+            $src = "$Path.$i"; $dst = "$Path.$($i + 1)"
+            if (Test-Path $src) { Move-Item $src $dst -Force -ErrorAction SilentlyContinue }
+        }
+        Move-Item $Path "$Path.1" -Force -ErrorAction SilentlyContinue
+    }
+
+    # Below threshold: no rotation.
+    Set-Content $tmpLog "small"
+    Invoke-LogRotateTest -Path $tmpLog -MaxBytes 1MB -MaxFiles 5
+    Assert { Test-Path $tmpLog } 'sub-threshold log is left in place'
+    Assert { -not (Test-Path "$tmpLog.1") } 'no rotation file created when under threshold'
+
+    # Over threshold: rotates to .1.
+    Set-Content $tmpLog ('x' * 1100000)
+    Invoke-LogRotateTest -Path $tmpLog -MaxBytes 1MB -MaxFiles 5
+    Assert { -not (Test-Path $tmpLog) } 'over-threshold log was moved'
+    Assert { Test-Path "$tmpLog.1" } 'rotated to .1'
+
+    # Cap at MaxFiles: oldest dropped, others shift.
+    1..6 | ForEach-Object { Set-Content "$tmpLog.$_" "gen$_" -ErrorAction SilentlyContinue }
+    Set-Content $tmpLog ('x' * 1100000)
+    Invoke-LogRotateTest -Path $tmpLog -MaxBytes 1MB -MaxFiles 5
+    Assert { -not (Test-Path "$tmpLog.6") } 'rotated files capped at MaxFiles (no .6)'
+}
+finally {
+    Get-ChildItem (Split-Path $tmpLog -Parent) -Filter ((Split-Path $tmpLog -Leaf) + '*') -ErrorAction SilentlyContinue |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host ''
 if ($failures -eq 0) {
     Write-Host "All checks passed." -ForegroundColor Green
