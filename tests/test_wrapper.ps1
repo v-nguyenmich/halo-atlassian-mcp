@@ -69,12 +69,12 @@ $tmpTenant = Join-Path $env:TEMP ("halo-tenant-" + [guid]::NewGuid().ToString('N
 try {
     $out = & pwsh -NoProfile -File $Installer `
         -Email 'dry@example.com' -Token 'dry-token' `
-        -JiraUrl 'https://t.example.com' -ConfluenceUrl 'https://t.example.com/wiki' `
+        -JiraUrl 'https://t.atlassian.net' -ConfluenceUrl 'https://t.atlassian.net/wiki' `
         -DeployRoot $tmpDeploy -TenantConfigPath $tmpTenant -DryRun 2>&1
     $exit = $LASTEXITCODE
     Assert { $exit -eq 0 } "installer -DryRun exits 0 (got $exit)"
     Assert { ($out -join "`n") -match 'DRYRUN.*Set-HaloAtlassianCredential' } 'installer logs credential write step'
-    Assert { ($out -join "`n") -match 'DRYRUN.*jira_url.*t\.example\.com' } 'installer logs tenant config write'
+    Assert { ($out -join "`n") -match 'DRYRUN.*jira_url.*t\.atlassian\.net' } 'installer logs tenant config write'
     Assert { ($out -join "`n") -match 'DRYRUN.*Copy-Item.*mcp-halo-atlassian\.ps1' } 'installer logs wrapper copy step'
     Assert { ($out -join "`n") -match 'DRYRUN.*docker pull' } 'installer logs docker pull step'
     Assert { ($out -join "`n") -match 'DRYRUN.*Register-ScheduledTask' } 'installer logs auto-update task registration'
@@ -121,6 +121,43 @@ Assert {
     # default change can't strand existing tasks pointed at old paths.
     $installerText -match '-DeployRoot\s+`"\$DeployRoot`"'
 } 'scheduled-task arglist still passes -DeployRoot explicitly'
+
+# --- Installer tenant URL validation ----------------------------------------
+Write-Host ''
+Write-Host '== Tenant URL validation ==' -ForegroundColor Cyan
+$tmpDeploy = Join-Path $env:TEMP ("halo-mcp-vald-" + [guid]::NewGuid().ToString('N'))
+$tmpTenant = Join-Path $env:TEMP ("halo-tenant-vald-" + [guid]::NewGuid().ToString('N') + ".json")
+try {
+    # Bad scheme.
+    $err = pwsh -NoProfile -File $Installer -Email 'a@b.c' -Token 'x' `
+        -JiraUrl 'http://t.atlassian.net' -ConfluenceUrl 'https://t.atlassian.net/wiki' `
+        -DeployRoot $tmpDeploy -TenantConfigPath $tmpTenant -DryRun 2>&1
+    Assert { $LASTEXITCODE -ne 0 } 'http:// scheme is rejected'
+    Assert { ($err -join "`n") -match 'must use https' } 'helpful error for http://'
+
+    # Bad host.
+    $err = pwsh -NoProfile -File $Installer -Email 'a@b.c' -Token 'x' `
+        -JiraUrl 'https://example.com' -ConfluenceUrl 'https://example.com/wiki' `
+        -DeployRoot $tmpDeploy -TenantConfigPath $tmpTenant -DryRun 2>&1
+    Assert { $LASTEXITCODE -ne 0 } 'non-atlassian.net host is rejected'
+    Assert { ($err -join "`n") -match 'must end in \.atlassian\.net' } 'helpful error for bad host'
+
+    # Garbage URL.
+    $err = pwsh -NoProfile -File $Installer -Email 'a@b.c' -Token 'x' `
+        -JiraUrl 'not-a-url' -ConfluenceUrl 'https://t.atlassian.net/wiki' `
+        -DeployRoot $tmpDeploy -TenantConfigPath $tmpTenant -DryRun 2>&1
+    Assert { $LASTEXITCODE -ne 0 } 'malformed URL is rejected'
+
+    # Happy path with /wiki Confluence path still passes host check.
+    $out = pwsh -NoProfile -File $Installer -Email 'a@b.c' -Token 'x' `
+        -JiraUrl 'https://t.atlassian.net' -ConfluenceUrl 'https://t.atlassian.net/wiki' `
+        -DeployRoot $tmpDeploy -TenantConfigPath $tmpTenant -DryRun 2>&1
+    Assert { $LASTEXITCODE -eq 0 } "well-formed URLs pass (got $LASTEXITCODE)"
+}
+finally {
+    if (Test-Path $tmpDeploy) { Remove-Item $tmpDeploy -Recurse -Force }
+    if (Test-Path $tmpTenant) { Remove-Item $tmpTenant -Force }
+}
 
 # --- bump-wrapper-digest.sh: rewrite is idempotent + correct -----------------
 Write-Host ''

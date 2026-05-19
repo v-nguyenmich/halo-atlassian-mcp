@@ -132,6 +132,24 @@ if (-not $ConfluenceUrl) {
     $ConfluenceUrl = if ([string]::IsNullOrWhiteSpace($resp)) { $defaultConfluence } else { $resp.TrimEnd('/') }
 }
 
+# Mirror src/halo_mcp_atlassian/config.py validation so users see the error
+# at install time instead of getting cryptic ConfigError on first launch.
+function Test-AtlassianUrl {
+    param([string]$Url, [string]$Label)
+    $uri = $null
+    if (-not [System.Uri]::TryCreate($Url, [System.UriKind]::Absolute, [ref]$uri)) {
+        throw "$Label URL is not a valid absolute URL: '$Url'"
+    }
+    if ($uri.Scheme -ne 'https') {
+        throw "$Label URL must use https:// (got '$($uri.Scheme)://...')"
+    }
+    if (-not $uri.Host.EndsWith('.atlassian.net')) {
+        throw "$Label URL must end in .atlassian.net (got host '$($uri.Host)')"
+    }
+}
+Test-AtlassianUrl -Url $JiraUrl       -Label 'Jira'
+Test-AtlassianUrl -Url $ConfluenceUrl -Label 'Confluence'
+
 # ---- 3. Write to Credential Manager ----------------------------------------
 Write-Step 'Writing credential to Windows Credential Manager'
 . $HelperSrc
