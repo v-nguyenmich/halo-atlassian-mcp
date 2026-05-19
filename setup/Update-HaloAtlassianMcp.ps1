@@ -24,6 +24,14 @@
   Where to write the rolling log. Defaults to
   $env:LOCALAPPDATA\HaloMcp\update.log.
 
+.PARAMETER LogMaxBytes
+  Rotate the log file when it exceeds this size (default 1 MB). The previous
+  log is moved to <LogPath>.1; older files shift to .2, .3, ... up to
+  LogMaxFiles before being discarded.
+
+.PARAMETER LogMaxFiles
+  Maximum number of rotated log files to retain (default 5).
+
 .EXAMPLE
   pwsh -NoProfile -File Update-HaloAtlassianMcp.ps1
 #>
@@ -31,7 +39,9 @@
 param(
     [string]$RepoRoot,
     [string]$DeployRoot = (Join-Path $env:LOCALAPPDATA 'Programs\halo-mcp-atlassian'),
-    [string]$LogPath = (Join-Path $env:LOCALAPPDATA 'HaloMcp\update.log')
+    [string]$LogPath = (Join-Path $env:LOCALAPPDATA 'HaloMcp\update.log'),
+    [int]$LogMaxBytes = 1MB,
+    [int]$LogMaxFiles = 5
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,6 +52,33 @@ if (-not $RepoRoot) {
 
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $LogPath) | Out-Null
 
+# Rotate the log file before any writes. Avoids the weekly task accumulating
+# unbounded log growth on a long-running install.
+function Invoke-LogRotate {
+    param([string]$Path, [int]$MaxBytes, [int]$MaxFiles)
+    if (-not (Test-Path $Path)) { return }
+    $size = (Get-Item $Path).Length
+    if ($size -lt $MaxBytes) { return }
+    # Drop everything at or beyond MaxFiles (handles MaxFiles decreases).
+    $leaf = Split-Path $Path -Leaf
+    Get-ChildItem -Path (Split-Path $Path -Parent) -Filter ($leaf + '.*') -ErrorAction SilentlyContinue |
+        Where-Object {
+            if ($_.Name.Length -le $leaf.Length + 1) { return $false }
+            $suffix = $_.Name.Substring($leaf.Length + 1)
+            $n = 0
+            [int]::TryParse($suffix, [ref]$n) -and $n -ge $MaxFiles
+        } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+    # Shift the rest up by one and move current to .1.
+    for ($i = $MaxFiles - 1; $i -ge 1; $i--) {
+        $src = "$Path.$i"
+        $dst = "$Path.$($i + 1)"
+        if (Test-Path $src) { Move-Item $src $dst -Force -ErrorAction SilentlyContinue }
+    }
+    Move-Item $Path "$Path.1" -Force -ErrorAction SilentlyContinue
+}
+Invoke-LogRotate -Path $LogPath -MaxBytes $LogMaxBytes -MaxFiles $LogMaxFiles
+
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
     $line = '{0} [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-ddTHH:mm:sszzz'), $Level, $Message
@@ -49,8 +86,35 @@ function Write-Log {
     Write-Host $line
 }
 
+# Network preflight. The weekly task runs unattended on laptops that may be
+# closed / on VPN / on captive WiFi. Fail fast (< 5s) instead of hanging the
+# 15-minute task budget on git fetch or docker pull timeouts.
+function Test-NetworkReachable {
+    param([string[]]$Hosts = @('github.com', 'ghcr.io'), [int]$TimeoutMs = 3000)
+    foreach ($h in $Hosts) {
+        try {
+            $req = [System.Net.WebRequest]::Create("https://$h")
+            $req.Method = 'HEAD'
+            $req.Timeout = $TimeoutMs
+            $resp = $req.GetResponse()
+            $resp.Close()
+            return $true
+        } catch {
+            # Try the next host before declaring offline.
+            continue
+        }
+    }
+    return $false
+}
+
 try {
     Write-Log "update start: repo=$RepoRoot deploy=$DeployRoot"
+
+    if (-not (Test-NetworkReachable)) {
+        Write-Log 'network preflight failed: github.com and ghcr.io both unreachable; skipping this run' 'WARN'
+        exit 0
+    }
+    Write-Log 'network preflight OK'
 
     if (-not (Test-Path (Join-Path $RepoRoot '.git'))) {
         throw "Not a git repo: $RepoRoot"
