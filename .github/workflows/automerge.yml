@@ -17,7 +17,8 @@ jobs:
   automerge:
     if: >-
       github.actor == 'renovate[bot]' ||
-      github.actor == 'dependabot[bot]'
+      github.actor == 'dependabot[bot]' ||
+      github.actor == 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Approve PR

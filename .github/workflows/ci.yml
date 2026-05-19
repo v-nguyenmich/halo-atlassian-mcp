@@ -74,6 +74,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
+          trivyignores: .trivyignore
 
       - name: Docker Scout (informational; Trivy is the gate)
         uses: docker/scout-action@aceeb83b88f2ae54376891227858dda7af647183  # v1.15.0
@@ -108,8 +109,26 @@ jobs:
       # Promote to :stable only after Trivy passed, image is signed, and SBOM is attested.
       # Consumers who follow :stable (auto-update scheduled task) get only known-good images.
       - name: Promote to :stable
+        id: promote
         if: github.event_name == 'push' || github.event_name == 'workflow_call' || github.event_name == 'schedule'
         run: |
           docker buildx imagetools create \
             --tag ${{ env.IMAGE }}:stable \
             ${{ env.IMAGE }}:${{ github.sha }}
+
+      # After a successful promotion, open an auto-merging PR that bumps
+      # $DefaultImage in the wrapper. Users' weekly update task then picks
+      # up the new digest with zero manual steps.
+      #
+      # Uses WRAPPER_BUMP_PAT (fine-grained PAT with contents:write +
+      # pull-requests:write) if available so the bump PR re-triggers CI;
+      # falls back to GITHUB_TOKEN otherwise (PR opens but CI won't run on
+      # it -- merge manually or push an empty commit).
+      - name: Bump wrapper digest PR
+        if: steps.promote.conclusion == 'success'
+        env:
+          IMAGE: ${{ env.IMAGE }}
+          NEW_DIGEST: ${{ steps.build.outputs.digest }}
+          GIT_REF_SHORT: ${{ github.sha }}
+          GH_TOKEN: ${{ secrets.WRAPPER_BUMP_PAT || secrets.GITHUB_TOKEN }}
+        run: bash scripts/bump-wrapper-digest.sh

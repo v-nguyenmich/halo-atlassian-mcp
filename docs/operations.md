@@ -3,8 +3,8 @@
 ## Required environment
 | Var | Notes |
 |---|---|
-| ATLASSIAN_JIRA_URL | `https://343industries.atlassian.net` |
-| ATLASSIAN_CONFLUENCE_URL | same as Jira on Cloud |
+| ATLASSIAN_JIRA_URL | e.g. `https://your-tenant.atlassian.net` |
+| ATLASSIAN_CONFLUENCE_URL | usually `$ATLASSIAN_JIRA_URL/wiki` on Cloud |
 | ATLASSIAN_EMAIL | service account UPN |
 | ATLASSIAN_API_TOKEN | from Windows Credential Manager (`halo-atlassian:api-token`) |
 | HALO_MCP_LOG_LEVEL | INFO (default) |
@@ -22,7 +22,7 @@ docker run --rm -i \
   -e ATLASSIAN_JIRA_URL -e ATLASSIAN_CONFLUENCE_URL \
   -e ATLASSIAN_EMAIL -e ATLASSIAN_API_TOKEN \
   -e HALO_MCP_UPLOAD_ROOT=/uploads \
-  ghcr.io/halostudios/halo-mcp-atlassian@sha256:<digest>
+  ghcr.io/<owner>/halo-mcp-atlassian@sha256:<digest>
 ```
 Pass the API token by **reference** (`-e ATLASSIAN_API_TOKEN`, no value)
 so the token never appears in the docker process command line.
@@ -33,8 +33,8 @@ Block everything else at the host firewall.
 
 ## Verifying image signature
 ```
-cosign verify ghcr.io/halostudios/halo-mcp-atlassian@sha256:<digest> \
-  --certificate-identity-regexp 'https://github.com/halostudios/.*' \
+cosign verify ghcr.io/<owner>/halo-mcp-atlassian@sha256:<digest> \
+  --certificate-identity-regexp "https://github.com/<owner>/.*" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 

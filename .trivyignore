@@ -1,0 +1,25 @@
+# Trivy ignore list — base-image CVEs fixed upstream in Debian 12 but not yet
+# rebuilt into gcr.io/distroless/python3-debian12:nonroot. Re-evaluate every
+# Monday; remove entries once `docker pull gcr.io/distroless/python3-debian12:nonroot`
+# returns a new digest and Trivy reports clean.
+#
+# All entries below are non-exploitable in this container because:
+#   - The MCP server is a stdio child process with no network listener.
+#   - It does not parse untrusted tar archives, does not run http.client
+#     servers, and does not handle email headers.
+#   - libc6 memalign integer overflow requires hostile local code; the
+#     container runs only our pinned Python entrypoint as nonroot.
+#
+# Review-by: 2026-06-15
+
+# libc6 — glibc memalign integer overflow (fixed in 2.36-9+deb12u14)
+CVE-2026-0861
+
+# cpython — http.client read-buffer DoS (fixed in 3.11.2-6+deb12u7)
+CVE-2025-13836
+
+# cpython — tarfile infinite loop (fixed in 3.11.2-6+deb12u7)
+CVE-2025-8194
+
+# cpython — email header injection via unquoted newlines (fixed in 3.11.2-6+deb12u7)
+CVE-2026-1299

@@ -1,6 +1,6 @@
 ---
 name: halo-atlassian
-description: Interact with the Halo Studios Atlassian tenant (343industries.atlassian.net) — Jira issues, Atlassian Assets (CMDB), and Confluence — using the halo-atlassian MCP server for read paths and direct REST (PowerShell + Basic auth) for write paths the MCP server does not expose. Use this skill any time the user asks to query, create, update, transition, link, or comment on Jira issues, look up assets/licenses/hardware, or read/write Confluence pages on this tenant.
+description: Interact with an Atlassian Cloud tenant — Jira issues, Atlassian Assets (CMDB), and Confluence — using the halo-atlassian MCP server for read paths and direct REST (PowerShell + Basic auth) for write paths the MCP server does not expose. Use this skill any time the user asks to query, create, update, transition, link, or comment on Jira issues, look up assets/licenses/hardware, or read/write Confluence pages on the configured tenant.
 allowed-tools:
   - halo-atlassian-jira_search
   - halo-atlassian-jira_get_issue
@@ -29,10 +29,10 @@ allowed-tools:
 
 # halo-atlassian skill
 
-General-purpose interaction layer for the Halo Studios Atlassian tenant
-(`https://343industries.atlassian.net`). Covers Jira, Assets (CMDB), and
-Confluence. Uses the `halo-atlassian` MCP server for everything it can do
-and falls back to direct REST + Basic auth for the rest.
+General-purpose interaction layer for an Atlassian Cloud tenant. Covers
+Jira, Assets (CMDB), and Confluence. Uses the `halo-atlassian` MCP server
+for everything it can do and falls back to direct REST + Basic auth for
+the rest.
 
 ## Prerequisites
 
@@ -47,9 +47,11 @@ and falls back to direct REST + Basic auth for the rest.
     `CredRead` P/Invoke under the hood — no PSGallery modules required.
 - Atlassian email comes from the credential's UserName field (no env
   override needed).
+- Tenant base URL comes from the tenant config written by the installer
+  (default `%USERPROFILE%\.halo-atlassian.json` -> `jira_url`).
 
-If credentials are missing, stop and tell the user how to add them — do
-not prompt for the token in chat.
+If credentials or tenant config are missing, stop and tell the user how to
+add them — do not prompt for the token in chat.
 
 ## Auth header helper
 
@@ -61,7 +63,8 @@ $email = $cred.Email
 $token = $cred.Token
 $b64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${email}:${token}"))
 $headers = @{ Authorization = "Basic $b64"; 'Content-Type'='application/json'; Accept='application/json' }
-$base = 'https://343industries.atlassian.net'
+$tenant = Get-Content (Join-Path $env:USERPROFILE '.halo-atlassian.json') -Raw | ConvertFrom-Json
+$base = $tenant.jira_url
 ```
 
 ## Tool selection rule

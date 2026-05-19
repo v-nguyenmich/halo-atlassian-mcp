@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir --no-deps --target /install .
 # renovate: datasource=docker depName=gcr.io/distroless/python3-debian12
 FROM gcr.io/distroless/python3-debian12:nonroot@sha256:7d1042ce588ab97019fe95c24ffca7bc5a82ccdac572511d5e09bda4435c89c5
 LABEL org.opencontainers.image.title="halo-mcp-atlassian"
-LABEL org.opencontainers.image.source="https://github.com/halostudios/halo-mcp-atlassian"
+LABEL org.opencontainers.image.source="https://github.com/v-nguyenmich/halo-atlassian-mcp"
 LABEL org.opencontainers.image.licenses="Proprietary"
 COPY --from=build /install /app
 ENV PYTHONPATH="/app" \

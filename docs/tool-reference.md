@@ -47,8 +47,8 @@ still come up).
 | assets_list_object_type_attributes | GET | /jsm/assets/workspace/{ws}/v1/objecttype/{id}/attributes |
 
 AQL query examples:
-- `objectType = Laptop AND Owner.emailAddress = "user@halostudios.com"`
-- `objectSchema = "Halo Studios Employees" AND Name LIKE "Nguyen"`
+- `objectType = Laptop AND Owner.emailAddress = "user@example.com"`
+- `objectSchema = "Employees" AND Name LIKE "Smith"`
 - `Key = "HSE-42"`
 
 `max_results` is hard-capped at 200 per call.

@@ -65,20 +65,25 @@ Write-Host '== Installer DryRun ==' -ForegroundColor Cyan
 Assert { Test-Path $Installer } 'installer file exists'
 
 $tmpDeploy = Join-Path $env:TEMP ("halo-mcp-install-test-" + [guid]::NewGuid().ToString('N'))
+$tmpTenant = Join-Path $env:TEMP ("halo-tenant-" + [guid]::NewGuid().ToString('N') + ".json")
 try {
     $out = & pwsh -NoProfile -File $Installer `
         -Email 'dry@example.com' -Token 'dry-token' `
-        -DeployRoot $tmpDeploy -DryRun 2>&1
+        -JiraUrl 'https://t.example.com' -ConfluenceUrl 'https://t.example.com/wiki' `
+        -DeployRoot $tmpDeploy -TenantConfigPath $tmpTenant -DryRun 2>&1
     $exit = $LASTEXITCODE
     Assert { $exit -eq 0 } "installer -DryRun exits 0 (got $exit)"
     Assert { ($out -join "`n") -match 'DRYRUN.*Set-HaloAtlassianCredential' } 'installer logs credential write step'
+    Assert { ($out -join "`n") -match 'DRYRUN.*jira_url.*t\.example\.com' } 'installer logs tenant config write'
     Assert { ($out -join "`n") -match 'DRYRUN.*Copy-Item.*mcp-halo-atlassian\.ps1' } 'installer logs wrapper copy step'
     Assert { ($out -join "`n") -match 'DRYRUN.*docker pull' } 'installer logs docker pull step'
     Assert { ($out -join "`n") -match 'DRYRUN.*Register-ScheduledTask' } 'installer logs auto-update task registration'
     Assert { -not (Test-Path $tmpDeploy) } 'DryRun did not create deploy dir'
+    Assert { -not (Test-Path $tmpTenant) } 'DryRun did not write tenant config'
 }
 finally {
     if (Test-Path $tmpDeploy) { Remove-Item $tmpDeploy -Recurse -Force }
+    if (Test-Path $tmpTenant) { Remove-Item $tmpTenant -Force }
 }
 
 # --- Update-HaloAtlassianMcp.ps1 script sanity -------------------------------
@@ -93,6 +98,112 @@ Assert {
 Assert {
     (Get-Content $Updater -Raw) -match '\.SYNOPSIS\s*\r?\n\s*Pulls the latest'
 } 'updater has synopsis'
+
+# --- bump-wrapper-digest.sh: rewrite is idempotent + correct -----------------
+Write-Host ''
+Write-Host '== Bump wrapper digest script ==' -ForegroundColor Cyan
+$BumpSh = Join-Path $RepoRoot 'scripts\bump-wrapper-digest.sh'
+Assert { Test-Path $BumpSh } 'bump script exists'
+Assert { (Get-Content $BumpSh -Raw) -match 'NEW_DIGEST' } 'bump script declares NEW_DIGEST env'
+
+# Locally execute the Python rewrite portion against a copy of the wrapper.
+$tmpWrap = Join-Path $env:TEMP ("bump-test-" + [guid]::NewGuid().ToString('N') + ".ps1")
+Copy-Item (Join-Path $RepoRoot 'wrapper\mcp-halo-atlassian.ps1') $tmpWrap
+try {
+    $newRef = 'ghcr.io/test/img@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+    $script = @'
+import re, sys, pathlib
+path, new_ref, short = sys.argv[1:]
+text = pathlib.Path(path).read_text(encoding="utf-8")
+m = re.search(r"^\$DefaultImage\s*=\s*'([^']+)'", text, re.MULTILINE)
+if not m: sys.exit(10)
+old = m.group(1)
+print(old)
+if old == new_ref: sys.exit(2)
+text, n = re.subn(r"^(\$DefaultImage\s*=\s*')[^']+(')(\s*#[^\r\n]*)?",
+    lambda mo: f"{mo.group(1)}{new_ref}{mo.group(2)}  # auto-bumped from {short}",
+    text, count=1, flags=re.MULTILINE)
+if n != 1: sys.exit(11)
+text, n = re.subn(r"^(\$PreviousImage\s*=\s*\$env:HALO_MCP_PREV_IMAGE\s*;\s*if\s*\(-not\s*\$PreviousImage\)\s*\{\s*\$PreviousImage\s*=\s*')[^']+(')",
+    lambda mo: f"{mo.group(1)}{old}{mo.group(2)}",
+    text, count=1, flags=re.MULTILINE)
+if n != 1: sys.exit(12)
+pathlib.Path(path).write_text(text, encoding="utf-8")
+'@
+    $scriptFile = [IO.Path]::ChangeExtension($tmpWrap, '.py')
+    Set-Content -Path $scriptFile -Value $script -Encoding UTF8
+    $oldDigest = (& uv run python $scriptFile $tmpWrap $newRef 'cafef00' | Select-Object -First 1).Trim()
+    $rc = $LASTEXITCODE
+    Assert { $rc -eq 0 } "first rewrite exits 0 (got $rc)"
+    Assert { ((Select-String -Path $tmpWrap -Pattern '^\$DefaultImage' | Select-Object -First 1).Line) -match [regex]::Escape($newRef) } 'DefaultImage updated'
+    Assert { ((Select-String -Path $tmpWrap -Pattern '^\$PreviousImage' | Select-Object -First 1).Line) -match [regex]::Escape($oldDigest) } 'PreviousImage demoted to old default'
+    Assert { ((Select-String -Path $tmpWrap -Pattern '^\$DefaultImage' | Select-Object -First 1).Line) -match 'auto-bumped from cafef00' } 'auto-bump comment present'
+    # Second run with same digest is a no-op (exit 2 means SAME).
+    & uv run python $scriptFile $tmpWrap $newRef 'cafef00' *> $null
+    Assert { $LASTEXITCODE -eq 2 } "second rewrite is no-op (exit 2 for SAME, got $LASTEXITCODE)"
+    Remove-Item $scriptFile -Force
+}
+finally {
+    if (Test-Path $tmpWrap) { Remove-Item $tmpWrap -Force }
+}
+
+# --- Wrapper tenant-URL resolution ------------------------------------------
+Write-Host ''
+Write-Host '== Wrapper tenant config ==' -ForegroundColor Cyan
+$Wrapper = Join-Path $RepoRoot 'wrapper\mcp-halo-atlassian.ps1'
+Assert {
+    $text = Get-Content $Wrapper -Raw
+    # Must NOT have a hardcoded tenant URL anywhere.
+    (-not ($text -match '343industries\.atlassian\.net')) -and
+    (-not ($text -match 'halostudios\.com'))
+} 'wrapper has no hardcoded tenant URLs'
+Assert {
+    (Get-Content $Wrapper -Raw) -match 'HALO_MCP_TENANT_CONFIG'
+} 'wrapper reads HALO_MCP_TENANT_CONFIG env override'
+Assert {
+    (Get-Content $Wrapper -Raw) -match '\.halo-atlassian\.json'
+} 'wrapper falls back to ~/.halo-atlassian.json'
+
+# --- Wrapper portability (PR1) ----------------------------------------------
+Write-Host ''
+Write-Host '== Wrapper portability ==' -ForegroundColor Cyan
+$wrapperText = Get-Content $Wrapper -Raw
+Assert {
+    -not ($wrapperText -match "D:\\\\CopilotScripts\\\\halo-mcp-atlassian\\\\uploads")
+} 'wrapper has no hardcoded D:\ uploads path'
+Assert {
+    -not ($wrapperText -match "'D:\\\\CopilotScripts\\\\halo-mcp-atlassian\\\\wrapper\\\\CredentialStore\.ps1'")
+} 'wrapper has no stale D:\ CredentialStore fallback'
+Assert {
+    $wrapperText -match "Join-Path\s+\`$PSScriptRoot\s+'uploads'"
+} 'wrapper derives uploads dir from $PSScriptRoot'
+Assert {
+    $wrapperText -match 'param\(\s*\[switch\]\$DryRun'
+} 'wrapper accepts -DryRun switch'
+Assert {
+    $wrapperText -match 'docker info'
+} 'wrapper preflights with docker info'
+Assert {
+    $wrapperText -match 'Docker Desktop is not running'
+} 'wrapper prints friendly Docker-not-running error'
+Assert {
+    $wrapperText -match 'Get-Command\s+docker'
+} 'wrapper looks up docker via PATH first'
+
+# Functional: -DryRun exits 0 even when tenant URLs are absent.
+$old1 = $env:ATLASSIAN_JIRA_URL; $old2 = $env:ATLASSIAN_CONFLUENCE_URL
+try {
+    $env:ATLASSIAN_JIRA_URL = $null; $env:ATLASSIAN_CONFLUENCE_URL = $null
+    $out = pwsh -NoProfile -File $Wrapper -DryRun 2>&1
+    Assert { $LASTEXITCODE -eq 0 } "wrapper -DryRun exits 0 without tenant URLs (got $LASTEXITCODE)"
+    Assert { ($out -join "`n") -match 'DRYRUN: full command' } 'wrapper -DryRun prints the docker invocation'
+    Assert { ($out -join "`n") -match 'DRYRUN WARNING.*tenant URLs not configured' } 'wrapper -DryRun warns about missing tenant URLs instead of failing'
+}
+finally {
+    $env:ATLASSIAN_JIRA_URL = $old1; $env:ATLASSIAN_CONFLUENCE_URL = $old2
+    # Test side-effect: -DryRun creates uploads/ next to the wrapper.
+    Remove-Item (Join-Path (Split-Path $Wrapper -Parent) 'uploads') -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host ''
 if ($failures -eq 0) {

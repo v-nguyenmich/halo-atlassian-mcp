@@ -5,6 +5,9 @@
 #   2. Prompts (or accepts via -Email / -Token) for Atlassian email + API token.
 #   3. Stores them in Windows Credential Manager under target
 #        'halo-atlassian:api-token'  (Generic credential).
+#   3b. Writes a tenant config (Jira/Confluence base URLs) to
+#        %USERPROFILE%\.halo-atlassian.json (non-secret, per-user, not
+#        committed). Pass -JiraUrl / -ConfluenceUrl for non-interactive.
 #   4. Copies the wrapper + helper into D:\CopilotScripts\.
 #   5. Merges (without overwriting other entries) a 'halo-atlassian' block
 #      into %USERPROFILE%\.copilot\mcp-config.json.
@@ -35,7 +38,10 @@
 param(
     [string]$Email,
     [string]$Token,
+    [string]$JiraUrl,
+    [string]$ConfluenceUrl,
     [string]$DeployRoot = 'D:\CopilotScripts',
+    [string]$TenantConfigPath = (Join-Path $env:USERPROFILE '.halo-atlassian.json'),
     [switch]$DryRun,
     [switch]$SkipPull,
     [switch]$SkipCheck,
@@ -97,7 +103,7 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 Write-Step 'Atlassian credential'
 
 if (-not $Email) {
-    $Email = Read-Host 'Atlassian email (e.g. you@halostudios.com)'
+    $Email = Read-Host 'Atlassian email (e.g. you@your-org.com)'
 }
 if (-not $Email) { throw 'Email is required.' }
 
@@ -112,6 +118,18 @@ if (-not $Token) {
     }
 }
 if (-not $Token) { throw 'Token is required.' }
+
+if (-not $JiraUrl) {
+    $JiraUrl = Read-Host 'Atlassian Jira base URL (e.g. https://your-tenant.atlassian.net)'
+}
+if (-not $JiraUrl) { throw 'Jira URL is required.' }
+$JiraUrl = $JiraUrl.TrimEnd('/')
+
+if (-not $ConfluenceUrl) {
+    $defaultConfluence = "$JiraUrl/wiki"
+    $resp = Read-Host "Atlassian Confluence base URL [$defaultConfluence]"
+    $ConfluenceUrl = if ([string]::IsNullOrWhiteSpace($resp)) { $defaultConfluence } else { $resp.TrimEnd('/') }
+}
 
 # ---- 3. Write to Credential Manager ----------------------------------------
 Write-Step 'Writing credential to Windows Credential Manager'
@@ -131,6 +149,24 @@ else {
     }
     catch {
         Write-Error "Failed to write credential: $_"
+        exit 2
+    }
+}
+
+# ---- 3b. Write tenant config (non-secret, per-user) -------------------------
+Write-Step "Writing tenant config to $TenantConfigPath"
+if ($DryRun) {
+    Write-Dry "{`"jira_url`": `"$JiraUrl`", `"confluence_url`": `"$ConfluenceUrl`"} -> $TenantConfigPath"
+}
+else {
+    try {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $TenantConfigPath) -Force | Out-Null
+        $tenantObj = [ordered]@{ jira_url = $JiraUrl; confluence_url = $ConfluenceUrl }
+        ($tenantObj | ConvertTo-Json) | Set-Content -Path $TenantConfigPath -Encoding UTF8
+        Write-Ok "tenant config: jira=$JiraUrl confluence=$ConfluenceUrl"
+    }
+    catch {
+        Write-Error "Failed to write tenant config: $_"
         exit 2
     }
 }
@@ -222,8 +258,8 @@ else {
             'run','--rm',
             '--read-only','--cap-drop=ALL','--security-opt=no-new-privileges',
             '--tmpfs','/tmp:rw,noexec,nosuid,size=16m',
-            '-e',"ATLASSIAN_JIRA_URL=https://343industries.atlassian.net",
-            '-e',"ATLASSIAN_CONFLUENCE_URL=https://343industries.atlassian.net/wiki",
+            '-e',"ATLASSIAN_JIRA_URL=$JiraUrl",
+            '-e',"ATLASSIAN_CONFLUENCE_URL=$ConfluenceUrl",
             '-e',"ATLASSIAN_EMAIL=$Email",
             '-e',"ATLASSIAN_API_TOKEN=$Token",
             $pinned,'--check'
