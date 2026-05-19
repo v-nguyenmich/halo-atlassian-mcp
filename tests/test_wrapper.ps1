@@ -437,6 +437,23 @@ finally {
         Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
+# --- Documentation scrub (PR7) ---------------------------------------------
+Write-Host ''
+Write-Host '== Documentation scrub ==' -ForegroundColor Cyan
+$readme         = Get-Content (Join-Path $RepoRoot 'README.md') -Raw
+$wrapperReadme  = Get-Content (Join-Path $RepoRoot 'wrapper\README.md') -Raw
+$skillsReadme   = Get-Content (Join-Path $RepoRoot 'skills\README.md') -Raw
+$skillMd        = Get-Content (Join-Path $RepoRoot 'skills\halo-atlassian\SKILL.md') -Raw
+Assert { $readme        -notmatch 'D:\\CopilotScripts' } 'README has no D:\CopilotScripts refs'
+Assert { $wrapperReadme -notmatch 'D:\\CopilotScripts' } 'wrapper/README has no D:\CopilotScripts refs'
+Assert { $skillsReadme  -notmatch 'D:\\CopilotScripts' } 'skills/README has no D:\CopilotScripts refs'
+Assert { $skillMd       -notmatch 'D:\\CopilotScripts' } 'skills/halo-atlassian/SKILL.md has no D:\CopilotScripts refs'
+Assert { $readme -match 'Multi-tenant' }                         'README has multi-tenant section'
+Assert { $readme -match 'Coexistence with other MCP servers' }   'README documents coexistence behaviour'
+Assert { $readme -match 'Docker not found' -and $readme -match '401 from Atlassian' -and $readme -match 'Weekly update task not running' } 'README troubleshooting matrix covers Docker / 401 / weekly task'
+Assert { $skillMd      -match 'LOCALAPPDATA' } 'skill doc uses LOCALAPPDATA helper path'
+Assert { $wrapperReadme -match 'sibling of the wrapper' } 'wrapper/README documents uploads as wrapper-sibling'
+
 Write-Host ''
 if ($failures -eq 0) {
     Write-Host "All checks passed." -ForegroundColor Green

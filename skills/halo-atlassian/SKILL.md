@@ -42,9 +42,10 @@ the rest.
 - An Atlassian API token stored in **Windows Credential Manager** as a
   Generic Credential named `halo-atlassian:api-token`. Read it via the
   helper shipped with this repo:
-  - `. D:\CopilotScripts\CredentialStore.ps1; (Get-HaloAtlassianCredential)`
+  - `. "$env:LOCALAPPDATA\Programs\halo-mcp-atlassian\CredentialStore.ps1"; (Get-HaloAtlassianCredential)`
     returns `[pscustomobject]@{Email; Token}`. Falls back to Win32
     `CredRead` P/Invoke under the hood — no PSGallery modules required.
+    (Replace the path with your `-DeployRoot` override if you set one.)
 - Atlassian email comes from the credential's UserName field (no env
   override needed).
 - Tenant base URL comes from the tenant config written by the installer
@@ -58,7 +59,7 @@ add them — do not prompt for the token in chat.
 Use this for any direct REST call:
 
 ```powershell
-$cred = . D:\CopilotScripts\CredentialStore.ps1; Get-HaloAtlassianCredential
+$cred = . "$env:LOCALAPPDATA\Programs\halo-mcp-atlassian\CredentialStore.ps1"; Get-HaloAtlassianCredential
 $email = $cred.Email
 $token = $cred.Token
 $b64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${email}:${token}"))
