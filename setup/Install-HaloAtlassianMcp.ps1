@@ -220,24 +220,44 @@ $desiredEntry = [ordered]@{
 }
 
 if ($DryRun) {
-    Write-Dry "ensure mcpServers.halo-atlassian -> $WrapperDst (preserves other servers)"
+    Write-Dry "ensure mcpServers.halo-atlassian -> $WrapperDst (preserves other servers; backs up existing mcp-config.json to .bak)"
 }
 else {
     try {
+        $existingHalo = $null
+        $siblingNames = @()
         if (Test-Path $ConfigPath) {
+            # Defensive backup before any mutation so a parser/encoding glitch
+            # can never strand a user's curated mcp-config.json.
+            $backupPath = "$ConfigPath.bak"
+            Copy-Item $ConfigPath $backupPath -Force
+            Write-Ok "backup: $backupPath"
+
             $cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json -AsHashtable
-            if (-not $cfg) { $cfg = @{} }
+            if (-not $cfg) { $cfg = [ordered]@{} }
+            if ($cfg.ContainsKey('mcpServers') -and $cfg['mcpServers']) {
+                $existingHalo = $cfg['mcpServers']['halo-atlassian']
+                $siblingNames = @($cfg['mcpServers'].Keys | Where-Object { $_ -ne 'halo-atlassian' })
+            }
         }
         else {
             New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
-            $cfg = @{}
+            $cfg = [ordered]@{}
         }
 
-        if (-not $cfg.ContainsKey('mcpServers')) { $cfg['mcpServers'] = @{} }
+        if (-not $cfg.ContainsKey('mcpServers')) { $cfg['mcpServers'] = [ordered]@{} }
+        if ($existingHalo) {
+            Write-Warn2 "overwriting existing 'halo-atlassian' MCP entry (backup at .bak)"
+        }
         $cfg['mcpServers']['halo-atlassian'] = $desiredEntry
 
         ($cfg | ConvertTo-Json -Depth 10) | Set-Content $ConfigPath -Encoding UTF8
-        Write-Ok "mcp-config.json updated (other servers preserved)"
+        if ($siblingNames.Count -gt 0) {
+            $list = ($siblingNames | Sort-Object) -join ', '
+            Write-Ok "mcp-config.json updated; preserved $($siblingNames.Count) other server(s): $list"
+        } else {
+            Write-Ok "mcp-config.json updated (no other servers present)"
+        }
     }
     catch {
         Write-Error "Failed to update mcp-config.json: $_"

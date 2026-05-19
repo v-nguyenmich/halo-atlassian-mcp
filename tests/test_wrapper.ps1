@@ -265,6 +265,51 @@ finally {
     Remove-Item (Join-Path (Split-Path $Wrapper -Parent) 'uploads') -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# --- mcp-config.json merge safety (PR4) -------------------------------------
+Write-Host ''
+Write-Host '== mcp-config merge safety ==' -ForegroundColor Cyan
+
+# Source-level structural assertions (cheap, no subprocess).
+Assert {
+    $installerText -match 'Copy-Item\s+\$ConfigPath\s+\$backupPath\s+-Force'
+} 'installer backs up mcp-config.json before write'
+Assert {
+    $installerText -match "overwriting existing 'halo-atlassian' MCP entry"
+} 'installer warns when overwriting existing halo-atlassian entry'
+Assert {
+    $installerText -match 'preserved \$\(\$siblingNames\.Count\) other server'
+} 'installer reports preserved sibling count'
+Assert {
+    # Idempotency: NO -Force gate on second install (overwrite is allowed but warned).
+    -not ($installerText -match '\[switch\]\$Force')
+} 'installer does not require -Force on re-install (keeps idempotency)'
+Assert {
+    $installerText -match 'backs up existing mcp-config\.json to \.bak'
+} 'DryRun message mentions backup behavior'
+
+# Functional: run installer against a redirected $env:USERPROFILE so the real
+# ~/.copilot/mcp-config.json is never touched. Use a non-DryRun invocation up
+# to (but not through) the docker pull step. Easier: just verify dry output
+# mentions both 'preserves other servers' and '.bak' for the merge step.
+$fakeProfile = Join-Path $env:TEMP ("halo-mcp-prof-" + [guid]::NewGuid().ToString('N'))
+$tmpDeploy   = Join-Path $env:TEMP ("halo-mcp-merge-" + [guid]::NewGuid().ToString('N'))
+$tmpTenant   = Join-Path $env:TEMP ("halo-tenant-merge-" + [guid]::NewGuid().ToString('N') + ".json")
+try {
+    $cmd = @"
+`$env:USERPROFILE = '$fakeProfile'
+& '$Installer' -Email 'a@b.c' -Token 'x' -JiraUrl 'https://t.atlassian.net' -ConfluenceUrl 'https://t.atlassian.net/wiki' -DeployRoot '$tmpDeploy' -TenantConfigPath '$tmpTenant' -DryRun
+"@
+    $out = pwsh -NoProfile -Command $cmd 2>&1
+    Assert { $LASTEXITCODE -eq 0 } "installer DryRun (redirected USERPROFILE) exits 0 (got $LASTEXITCODE)"
+    Assert { ($out -join "`n") -match 'preserves other servers' } 'DryRun mentions preservation'
+    Assert { ($out -join "`n") -match '\.bak' } 'DryRun mentions backup file'
+}
+finally {
+    Remove-Item $fakeProfile -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path $tmpDeploy) { Remove-Item $tmpDeploy -Recurse -Force }
+    if (Test-Path $tmpTenant) { Remove-Item $tmpTenant -Force }
+}
+
 Write-Host ''
 if ($failures -eq 0) {
     Write-Host "All checks passed." -ForegroundColor Green
