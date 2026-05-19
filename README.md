@@ -36,21 +36,25 @@ docker build -t halo-mcp-atlassian:dev .
 
 ## User setup (GitHub Copilot CLI on Windows)
 
-Three commands to a working `halo-atlassian` MCP server in Copilot CLI on a
-fresh Windows workstation.
+Two commands to a working `halo-atlassian` MCP server in Copilot CLI on a
+machine that already has Copilot CLI installed.
+
+> No Copilot CLI yet? Install Node.js LTS, then `npm install -g @github/copilot`.
 
 ### Prerequisites
 
 - Windows 10/11, **PowerShell 7+** (`pwsh`).
 - **Docker Desktop** installed and running.
-- **Node.js LTS** (only required for the Copilot CLI install at the end).
+- **GitHub Copilot CLI** already installed (`copilot --version` works).
 - An **Atlassian API token** — create at <https://id.atlassian.com/manage-profile/security/api-tokens>.
 
 ### Install
 
+Clone anywhere, then run the installer:
+
 ```powershell
-git clone https://github.com/v-nguyenmich/halo-atlassian-mcp.git D:\CopilotScripts\halo-mcp-atlassian
-cd D:\CopilotScripts\halo-mcp-atlassian
+git clone https://github.com/v-nguyenmich/halo-atlassian-mcp.git
+cd halo-atlassian-mcp
 pwsh -NoProfile -File .\setup\Install-HaloAtlassianMcp.ps1
 ```
 
@@ -63,12 +67,19 @@ The installer prompts for your Atlassian email + API token + tenant URL, then:
    `%USERPROFILE%\.halo-atlassian.json`. Non-secret, per-user, not
    committed.
 3. Deploys `mcp-halo-atlassian.ps1` + `CredentialStore.ps1` to
-   `D:\CopilotScripts\`.
+   `%LOCALAPPDATA%\Programs\halo-mcp-atlassian` (override with `-DeployRoot`).
 4. Merges a `halo-atlassian` entry into `~/.copilot/mcp-config.json`
-   (other MCP servers in that file are preserved).
-5. `docker pull`s the pinned image digest.
-6. Runs the container `--check` self-test.
-7. Registers a weekly Windows Scheduled Task
+   (other MCP servers in that file are preserved; backed up to
+   `mcp-config.json.bak`).
+5. Installs the Copilot CLI **skill** to
+   `~/.copilot/skills/halo-atlassian` so Copilot picks up the tool
+   guidance automatically. Skip with `-SkipSkill`.
+6. Detects any **legacy deployment** from earlier versions of this
+   installer and offers to remove the stale wrapper/helper. Skip with
+   `-SkipLegacyCleanup`.
+7. `docker pull`s the pinned image digest and runs the container
+   `--check` self-test.
+8. Registers a weekly Windows Scheduled Task
    (`HaloMcpAtlassian-AutoUpdate`, Mondays 03:30 local) that runs
    `setup/Update-HaloAtlassianMcp.ps1` so the repo and image stay fresh
    without any manual steps. Skip with `-SkipAutoUpdate`.
@@ -81,10 +92,44 @@ Non-interactive (CI / scripted):
 .\setup\Install-HaloAtlassianMcp.ps1 `
   -Email you@example.com `
   -Token "$env:ATLASSIAN_TOKEN" `
-  -JiraUrl "https://your-tenant.atlassian.net"
+  -JiraUrl "https://your-tenant.atlassian.net" `
+  -NonInteractive `
+  -SkipAutoUpdate
 ```
 
-`-DryRun` prints every step without writing anything.
+Useful switches: `-DryRun`, `-SkipSkill`, `-SkipLegacyCleanup`,
+`-SkipAutoUpdate`, `-DeployRoot <path>`, `-SkillRoot <path>`.
+
+### Migrating from `D:\CopilotScripts`
+
+Earlier versions deployed the wrapper to `D:\CopilotScripts\`. The
+current installer deploys to `%LOCALAPPDATA%\Programs\halo-mcp-atlassian`
+and, after writing the new mcp-config entry, prompts you to delete the
+stale `D:\CopilotScripts\mcp-halo-atlassian.ps1` +
+`D:\CopilotScripts\CredentialStore.ps1`. Answer `y` to clean up.
+
+`-NonInteractive` leaves the legacy files in place and prints a warning.
+The cloned repo itself is never touched — only the deployed wrapper
+copies.
+
+### Verify install health
+
+```powershell
+pwsh -NoProfile -File .\setup\Test-Installation.ps1
+```
+
+Reports credential, wrapper, tenant config, mcp-config entry, Docker
+state, cached image, container `--check`, and skill deployment.
+
+### Uninstall
+
+```powershell
+pwsh -NoProfile -File .\setup\Uninstall-HaloAtlassianMcp.ps1
+```
+
+Removes the scheduled task, mcp-config entry, deploy folder, tenant
+config, skill, and credential. Use `-KeepCredential`, `-KeepTenantConfig`,
+`-KeepSkill`, or `-DryRun` to scope the operation.
 
 ### Optional — enable Assets write tools
 
@@ -181,6 +226,10 @@ copilot
 | `--check failed` | Token expired or revoked; rotate at id.atlassian.com and re-run installer. |
 | `Cannot find image` | Pinned digest is gone from upstream GHCR. Either wait for the next auto-bump PR + Monday update, or fork the repo and host your own image (see [Fork and host your own image](#fork-and-host-your-own-image)). |
 | Copilot doesn't see new tools | Restart Copilot CLI session; tool list is cached at session start. |
+| `Docker not found` / `Docker Desktop is not running` | Start Docker Desktop and re-run `copilot`. The wrapper looks up `docker` on `PATH` first, then the default install path. |
+| `401 from Atlassian` | Token expired or revoked. Rotate at <https://id.atlassian.com/manage-profile/security/api-tokens> and re-run `Install-HaloAtlassianMcp.ps1`. |
+| Weekly update task not running | `Get-ScheduledTask HaloMcpAtlassian-AutoUpdate \| Get-ScheduledTaskInfo` to inspect last run. Re-register with `setup\Install-HaloAtlassianMcp.ps1`. Logs: `%LOCALAPPDATA%\HaloMcp\update.log`. |
+| Skill not loaded in Copilot | Confirm `~\.copilot\skills\halo-atlassian\SKILL.md` exists. Re-run installer or pass `-SkillRoot` to relocate. |
 
 ### (Optional) Per-user instructions file
 
@@ -197,7 +246,8 @@ Scheduled Task (`HaloMcpAtlassian-AutoUpdate`) that runs
 1. `git pull --ff-only` on the cloned repo
 2. Parses the new `$DefaultImage` digest from the freshly pulled wrapper
 3. `docker pull <digest>`
-4. Redeploys wrapper + helper to `D:\CopilotScripts\`
+4. Redeploys wrapper + helper to your deploy root
+   (default `%LOCALAPPDATA%\Programs\halo-mcp-atlassian`)
 
 Logs land in `%LOCALAPPDATA%\HaloMcp\update.log`. Run it on demand with:
 

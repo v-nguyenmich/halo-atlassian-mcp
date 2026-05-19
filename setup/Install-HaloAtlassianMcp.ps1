@@ -8,7 +8,8 @@
 #   3b. Writes a tenant config (Jira/Confluence base URLs) to
 #        %USERPROFILE%\.halo-atlassian.json (non-secret, per-user, not
 #        committed). Pass -JiraUrl / -ConfluenceUrl for non-interactive.
-#   4. Copies the wrapper + helper into D:\CopilotScripts\.
+#   4. Copies the wrapper + helper into the deploy root (default
+#      %LOCALAPPDATA%\Programs\halo-mcp-atlassian; override with -DeployRoot).
 #   5. Merges (without overwriting other entries) a 'halo-atlassian' block
 #      into %USERPROFILE%\.copilot\mcp-config.json.
 #   6. docker pull's the pinned image digest.
@@ -40,12 +41,16 @@ param(
     [string]$Token,
     [string]$JiraUrl,
     [string]$ConfluenceUrl,
-    [string]$DeployRoot = 'D:\CopilotScripts',
+    [string]$DeployRoot = (Join-Path $env:LOCALAPPDATA 'Programs\halo-mcp-atlassian'),
     [string]$TenantConfigPath = (Join-Path $env:USERPROFILE '.halo-atlassian.json'),
+    [string]$SkillRoot = (Join-Path $env:USERPROFILE '.copilot\skills'),
     [switch]$DryRun,
     [switch]$SkipPull,
     [switch]$SkipCheck,
     [switch]$SkipAutoUpdate,
+    [switch]$SkipSkill,
+    [switch]$SkipLegacyCleanup,
+    [switch]$NonInteractive,
     [string]$AutoUpdateTaskName = 'HaloMcpAtlassian-AutoUpdate'
 )
 
@@ -55,10 +60,20 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot       = Split-Path -Parent $PSScriptRoot
 $WrapperSrc     = Join-Path $RepoRoot 'wrapper\mcp-halo-atlassian.ps1'
 $HelperSrc      = Join-Path $RepoRoot 'wrapper\CredentialStore.ps1'
+$SkillSrc       = Join-Path $RepoRoot 'skills\halo-atlassian'
 $WrapperDst     = Join-Path $DeployRoot 'mcp-halo-atlassian.ps1'
 $HelperDst      = Join-Path $DeployRoot 'CredentialStore.ps1'
+$SkillDst       = Join-Path $SkillRoot 'halo-atlassian'
 $ConfigDir      = Join-Path $env:USERPROFILE '.copilot'
 $ConfigPath     = Join-Path $ConfigDir 'mcp-config.json'
+
+# Legacy deploy paths to detect + offer to clean during migration. A user
+# coming from the original D:\CopilotScripts layout has these orphans after
+# the default flip; the installer should not leave stale copies behind that
+# could be picked up by an out-of-date mcp-config entry.
+$LegacyDeployRoots = @(
+    'D:\CopilotScripts'
+)
 
 if (-not (Test-Path $WrapperSrc)) { throw "wrapper source missing: $WrapperSrc" }
 if (-not (Test-Path $HelperSrc))  { throw "helper source missing: $HelperSrc" }
@@ -67,6 +82,18 @@ function Write-Step  ([string]$msg) { Write-Host "==> $msg" -ForegroundColor Cya
 function Write-Ok    ([string]$msg) { Write-Host "    $msg" -ForegroundColor Green }
 function Write-Warn2 ([string]$msg) { Write-Host "    $msg" -ForegroundColor Yellow }
 function Write-Dry   ([string]$msg) { Write-Host "    [DRYRUN] $msg" -ForegroundColor DarkGray }
+
+# Idempotency banner: detect prior install before any user prompts so a
+# re-run is announced as a token rotation, not a fresh install.
+$priorInstall = (Test-Path $WrapperDst) -or (Test-Path $TenantConfigPath)
+if ($priorInstall) {
+    Write-Host '==> Detected prior install — running in rotate/refresh mode.' -ForegroundColor Cyan
+    if (Test-Path $WrapperDst)       { Write-Ok "wrapper present: $WrapperDst" }
+    if (Test-Path $TenantConfigPath) { Write-Ok "tenant config present: $TenantConfigPath" }
+}
+else {
+    Write-Host '==> Fresh install.' -ForegroundColor Cyan
+}
 
 # ---- 1. Prerequisites -------------------------------------------------------
 Write-Step 'Checking prerequisites'
@@ -103,11 +130,13 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 Write-Step 'Atlassian credential'
 
 if (-not $Email) {
+    if ($NonInteractive) { throw '-NonInteractive set but -Email not provided.' }
     $Email = Read-Host 'Atlassian email (e.g. you@your-org.com)'
 }
 if (-not $Email) { throw 'Email is required.' }
 
 if (-not $Token) {
+    if ($NonInteractive) { throw '-NonInteractive set but -Token not provided.' }
     $sec = Read-Host 'Atlassian API token (input hidden; create at https://id.atlassian.com/manage-profile/security/api-tokens)' -AsSecureString
     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
     try {
@@ -120,6 +149,7 @@ if (-not $Token) {
 if (-not $Token) { throw 'Token is required.' }
 
 if (-not $JiraUrl) {
+    if ($NonInteractive) { throw '-NonInteractive set but -JiraUrl not provided.' }
     $JiraUrl = Read-Host 'Atlassian Jira base URL (e.g. https://your-tenant.atlassian.net)'
 }
 if (-not $JiraUrl) { throw 'Jira URL is required.' }
@@ -127,8 +157,49 @@ $JiraUrl = $JiraUrl.TrimEnd('/')
 
 if (-not $ConfluenceUrl) {
     $defaultConfluence = "$JiraUrl/wiki"
-    $resp = Read-Host "Atlassian Confluence base URL [$defaultConfluence]"
-    $ConfluenceUrl = if ([string]::IsNullOrWhiteSpace($resp)) { $defaultConfluence } else { $resp.TrimEnd('/') }
+    if ($NonInteractive) {
+        $ConfluenceUrl = $defaultConfluence
+    }
+    else {
+        $resp = Read-Host "Atlassian Confluence base URL [$defaultConfluence]"
+        $ConfluenceUrl = if ([string]::IsNullOrWhiteSpace($resp)) { $defaultConfluence } else { $resp.TrimEnd('/') }
+    }
+}
+
+# Mirror src/halo_mcp_atlassian/config.py validation so users see the error
+# at install time instead of getting cryptic ConfigError on first launch.
+function Test-AtlassianUrl {
+    param([string]$Url, [string]$Label)
+    $uri = $null
+    if (-not [System.Uri]::TryCreate($Url, [System.UriKind]::Absolute, [ref]$uri)) {
+        throw "$Label URL is not a valid absolute URL: '$Url'"
+    }
+    if ($uri.Scheme -ne 'https') {
+        throw "$Label URL must use https:// (got '$($uri.Scheme)://...')"
+    }
+    if (-not $uri.Host.EndsWith('.atlassian.net')) {
+        throw "$Label URL must end in .atlassian.net (got host '$($uri.Host)')"
+    }
+}
+Test-AtlassianUrl -Url $JiraUrl       -Label 'Jira'
+Test-AtlassianUrl -Url $ConfluenceUrl -Label 'Confluence'
+
+# ---- 2b. Pre-flight summary -------------------------------------------------
+# Show every side-effecting target before we touch anything. In interactive
+# mode wait for Enter; -NonInteractive / -DryRun skip the pause.
+Write-Host ''
+Write-Host '==> Pre-flight summary' -ForegroundColor Cyan
+Write-Host ("    Mode             : {0}" -f $(if ($priorInstall) { 'rotate / refresh' } else { 'fresh install' }))
+Write-Host ("    Deploy root      : {0}" -f $DeployRoot)
+Write-Host ("    Tenant config    : {0}" -f $TenantConfigPath)
+Write-Host ("    Jira URL         : {0}" -f $JiraUrl)
+Write-Host ("    Confluence URL   : {0}" -f $ConfluenceUrl)
+Write-Host ("    mcp-config       : {0}" -f $ConfigPath)
+Write-Host ("    Atlassian email  : {0}" -f $Email)
+Write-Host ("    Scheduled task   : {0}" -f $(if ($SkipAutoUpdate) { '(skipped)' } else { $AutoUpdateTaskName + ' (weekly Mon 03:30)' }))
+Write-Host ''
+if (-not $DryRun -and -not $NonInteractive) {
+    $null = Read-Host 'Press Enter to continue, Ctrl-C to abort'
 }
 
 # ---- 3. Write to Credential Manager ----------------------------------------
@@ -201,28 +272,114 @@ $desiredEntry = [ordered]@{
 }
 
 if ($DryRun) {
-    Write-Dry "ensure mcpServers.halo-atlassian -> $WrapperDst (preserves other servers)"
+    Write-Dry "ensure mcpServers.halo-atlassian -> $WrapperDst (preserves other servers; backs up existing mcp-config.json to .bak)"
 }
 else {
     try {
+        $existingHalo = $null
+        $siblingNames = @()
         if (Test-Path $ConfigPath) {
+            # Defensive backup before any mutation so a parser/encoding glitch
+            # can never strand a user's curated mcp-config.json.
+            $backupPath = "$ConfigPath.bak"
+            Copy-Item $ConfigPath $backupPath -Force
+            Write-Ok "backup: $backupPath"
+
             $cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json -AsHashtable
-            if (-not $cfg) { $cfg = @{} }
+            if (-not $cfg) { $cfg = [ordered]@{} }
+            if ($cfg.ContainsKey('mcpServers') -and $cfg['mcpServers']) {
+                $existingHalo = $cfg['mcpServers']['halo-atlassian']
+                $siblingNames = @($cfg['mcpServers'].Keys | Where-Object { $_ -ne 'halo-atlassian' })
+            }
         }
         else {
             New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
-            $cfg = @{}
+            $cfg = [ordered]@{}
         }
 
-        if (-not $cfg.ContainsKey('mcpServers')) { $cfg['mcpServers'] = @{} }
+        if (-not $cfg.ContainsKey('mcpServers')) { $cfg['mcpServers'] = [ordered]@{} }
+        if ($existingHalo) {
+            Write-Warn2 "overwriting existing 'halo-atlassian' MCP entry (backup at .bak)"
+        }
         $cfg['mcpServers']['halo-atlassian'] = $desiredEntry
 
         ($cfg | ConvertTo-Json -Depth 10) | Set-Content $ConfigPath -Encoding UTF8
-        Write-Ok "mcp-config.json updated (other servers preserved)"
+        if ($siblingNames.Count -gt 0) {
+            $list = ($siblingNames | Sort-Object) -join ', '
+            Write-Ok "mcp-config.json updated; preserved $($siblingNames.Count) other server(s): $list"
+        } else {
+            Write-Ok "mcp-config.json updated (no other servers present)"
+        }
     }
     catch {
         Write-Error "Failed to update mcp-config.json: $_"
         exit 3
+    }
+}
+
+# ---- 5b. Install / refresh Copilot CLI skill -------------------------------
+if (-not $SkipSkill) {
+    Write-Step "Installing Copilot CLI skill to $SkillDst"
+    if (-not (Test-Path $SkillSrc)) {
+        Write-Warn2 "skill source missing at $SkillSrc; skipping (use -SkipSkill to silence this)"
+    }
+    elseif ($DryRun) {
+        Write-Dry "Copy-Item -Recurse $SkillSrc -> $SkillDst"
+    }
+    else {
+        try {
+            New-Item -ItemType Directory -Path $SkillRoot -Force | Out-Null
+            if (Test-Path $SkillDst) {
+                # Refresh in place so any user-local changes outside the
+                # repo-tracked files are wiped; this matches wrapper deploy.
+                Remove-Item -Recurse -Force $SkillDst
+            }
+            Copy-Item -Recurse $SkillSrc $SkillDst -Force
+            Write-Ok "skill deployed: $SkillDst (run /skills in Copilot to toggle on)"
+        }
+        catch {
+            Write-Warn2 "skill install failed: $_  (continuing; install manually from skills\halo-atlassian)"
+        }
+    }
+}
+
+# ---- 5c. Detect + offer to clean legacy D:\CopilotScripts deploy -----------
+# Users who installed prior to the deploy-root flip have orphaned wrapper +
+# helper at the old path. They're not used by anything any more (the new
+# mcp-config entry points at $WrapperDst above) but leaving them around is
+# confusing. Detect, list, prompt — or auto-skip with -SkipLegacyCleanup.
+if (-not $SkipLegacyCleanup) {
+    $legacyHits = @()
+    foreach ($root in $LegacyDeployRoots) {
+        if ([string]::Equals($root, $DeployRoot, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        foreach ($leaf in @('mcp-halo-atlassian.ps1','CredentialStore.ps1')) {
+            $candidate = Join-Path $root $leaf
+            if (Test-Path $candidate) { $legacyHits += $candidate }
+        }
+    }
+    if ($legacyHits.Count -gt 0) {
+        Write-Step 'Detected legacy install files (from a pre-LOCALAPPDATA deploy)'
+        $legacyHits | ForEach-Object { Write-Warn2 "legacy: $_" }
+        $doRemove = $false
+        if ($DryRun) {
+            Write-Dry "Remove-Item on $($legacyHits.Count) legacy file(s)"
+        }
+        elseif ($NonInteractive) {
+            Write-Warn2 'NonInteractive mode; leaving legacy files in place. Re-run with -SkipLegacyCleanup:$false interactively or delete manually.'
+        }
+        else {
+            $resp = Read-Host "Remove these $($legacyHits.Count) legacy file(s)? They are no longer referenced by mcp-config. [y/N]"
+            $doRemove = ($resp -match '^[yY]')
+        }
+        if ($doRemove) {
+            foreach ($f in $legacyHits) {
+                try { Remove-Item -Force $f; Write-Ok "removed: $f" }
+                catch { Write-Warn2 "could not remove $f : $_" }
+            }
+        }
+        elseif (-not $DryRun -and -not $NonInteractive) {
+            Write-Warn2 'Leaving legacy files in place. Re-run any time to clean.'
+        }
     }
 }
 
@@ -319,10 +476,27 @@ else {
 Write-Host ''
 Write-Host '==> Done.' -ForegroundColor Green
 Write-Host ''
-Write-Host 'Next:'
-Write-Host '  1. npm install -g @github/copilot   (if not already installed)'
-Write-Host '  2. copilot'
-Write-Host '  3. In session:  /tools              (should list halo-atlassian-* tools)'
+
+# Next-run for the auto-update task (skipped on DryRun / SkipAutoUpdate).
+if (-not $DryRun -and -not $SkipAutoUpdate) {
+    try {
+        $info = Get-ScheduledTaskInfo -TaskName $AutoUpdateTaskName -ErrorAction Stop
+        if ($info.NextRunTime) {
+            Write-Host ("Auto-update next run: {0:yyyy-MM-dd HH:mm} (local)" -f $info.NextRunTime) -ForegroundColor Cyan
+        }
+    } catch { } # task didn't register, already warned above
+}
+
 Write-Host ''
-Write-Host 'To rotate the token: re-run this script.'
+Write-Host 'Next:'
+if (-not (Get-Command copilot -ErrorAction SilentlyContinue)) {
+    Write-Host '  1. npm install -g @github/copilot'
+    Write-Host '  2. copilot'
+}
+else {
+    Write-Host '  1. copilot'
+}
+Write-Host '  -. In session:  /tools         (should list halo-atlassian-* tools)'
+Write-Host ''
+Write-Host 'To rotate the token: re-run this script (idempotent).'
 Write-Host 'To inspect the credential: cmdkey /list:halo-atlassian:api-token'
