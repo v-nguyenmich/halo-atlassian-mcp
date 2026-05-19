@@ -74,7 +74,7 @@ if (Test-Path $McpConfigPath) {
     $raw = Get-Content $McpConfigPath -Raw
     $cfg = $null
     try { $cfg = $raw | ConvertFrom-Json -AsHashtable } catch { }
-    if ($null -ne $cfg -and $cfg.ContainsKey('mcpServers') -and $cfg.mcpServers.ContainsKey('halo-atlassian')) {
+    if ($null -ne $cfg -and $cfg.Contains('mcpServers') -and $cfg.mcpServers.Contains('halo-atlassian')) {
         Write-Action 'remove' ("mcp-config entry 'halo-atlassian' (backup -> {0}.bak)" -f $McpConfigPath)
         if (-not $DryRun) {
             Copy-Item $McpConfigPath ("$McpConfigPath.bak") -Force
@@ -167,3 +167,4 @@ if ($DryRun) {
     Write-Host 'Uninstall complete.' -ForegroundColor Green
 }
 exit 0
+

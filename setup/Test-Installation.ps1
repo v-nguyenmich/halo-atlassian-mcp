@@ -77,13 +77,13 @@ Check "helper deployed at $HelperDst" {
 Check "~/.copilot/mcp-config.json has 'halo-atlassian'" {
     if (-not (Test-Path $McpConfigPath)) { return $false }
     $cfg = Get-Content $McpConfigPath -Raw | ConvertFrom-Json -AsHashtable
-    $cfg.mcpServers -and $cfg.mcpServers.ContainsKey('halo-atlassian')
+    $cfg.mcpServers -and $cfg.mcpServers.Contains('halo-atlassian')
 } "re-run installer; or check `$McpConfigPath` exists"
 
 Check "mcp-config 'halo-atlassian' points at deployed wrapper" {
     if (-not (Test-Path $McpConfigPath)) { return $false }
     $cfg = Get-Content $McpConfigPath -Raw | ConvertFrom-Json -AsHashtable
-    if (-not ($cfg.mcpServers -and $cfg.mcpServers.ContainsKey('halo-atlassian'))) { return $false }
+    if (-not ($cfg.mcpServers -and $cfg.mcpServers.Contains('halo-atlassian'))) { return $false }
     $args = $cfg.mcpServers['halo-atlassian'].args
     $args -contains $WrapperDst
 } "re-run installer; deploy root and mcp-config disagree"

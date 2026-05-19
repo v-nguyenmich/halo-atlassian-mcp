@@ -287,7 +287,7 @@ else {
 
             $cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json -AsHashtable
             if (-not $cfg) { $cfg = [ordered]@{} }
-            if ($cfg.ContainsKey('mcpServers') -and $cfg['mcpServers']) {
+            if ($cfg.Contains('mcpServers') -and $cfg['mcpServers']) {
                 $existingHalo = $cfg['mcpServers']['halo-atlassian']
                 $siblingNames = @($cfg['mcpServers'].Keys | Where-Object { $_ -ne 'halo-atlassian' })
             }
@@ -297,7 +297,7 @@ else {
             $cfg = [ordered]@{}
         }
 
-        if (-not $cfg.ContainsKey('mcpServers')) { $cfg['mcpServers'] = [ordered]@{} }
+        if (-not $cfg.Contains('mcpServers')) { $cfg['mcpServers'] = [ordered]@{} }
         if ($existingHalo) {
             Write-Warn2 "overwriting existing 'halo-atlassian' MCP entry (backup at .bak)"
         }
@@ -500,3 +500,4 @@ Write-Host '  -. In session:  /tools         (should list halo-atlassian-* tools
 Write-Host ''
 Write-Host 'To rotate the token: re-run this script (idempotent).'
 Write-Host 'To inspect the credential: cmdkey /list:halo-atlassian:api-token'
+
