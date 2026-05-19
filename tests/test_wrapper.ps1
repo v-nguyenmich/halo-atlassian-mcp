@@ -99,6 +99,29 @@ Assert {
     (Get-Content $Updater -Raw) -match '\.SYNOPSIS\s*\r?\n\s*Pulls the latest'
 } 'updater has synopsis'
 
+# --- Installer default DeployRoot --------------------------------------------
+Write-Host ''
+Write-Host '== Default DeployRoot ==' -ForegroundColor Cyan
+$installerText = Get-Content $Installer -Raw
+$updaterText   = Get-Content $Updater   -Raw
+Assert {
+    -not ($installerText -match "\[string\]\`$DeployRoot\s*=\s*'D:\\\\CopilotScripts'")
+} 'installer default no longer hardcodes D:\CopilotScripts'
+Assert {
+    -not ($updaterText -match "\[string\]\`$DeployRoot\s*=\s*'D:\\\\CopilotScripts'")
+} 'updater default no longer hardcodes D:\CopilotScripts'
+Assert {
+    $installerText -match "\`$env:LOCALAPPDATA\s+'Programs\\halo-mcp-atlassian'"
+} 'installer defaults to %LOCALAPPDATA%\Programs\halo-mcp-atlassian'
+Assert {
+    $updaterText -match "\`$env:LOCALAPPDATA\s+'Programs\\halo-mcp-atlassian'"
+} 'updater defaults to %LOCALAPPDATA%\Programs\halo-mcp-atlassian'
+Assert {
+    # Scheduled task must still pass -DeployRoot explicitly so a later
+    # default change can't strand existing tasks pointed at old paths.
+    $installerText -match '-DeployRoot\s+`"\$DeployRoot`"'
+} 'scheduled-task arglist still passes -DeployRoot explicitly'
+
 # --- bump-wrapper-digest.sh: rewrite is idempotent + correct -----------------
 Write-Host ''
 Write-Host '== Bump wrapper digest script ==' -ForegroundColor Cyan
