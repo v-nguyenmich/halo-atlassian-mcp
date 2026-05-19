@@ -126,45 +126,37 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     Write-Warn2 'node not found - Copilot CLI install (last step) will fail until you install Node LTS.'
 }
 
-# ---- 2. Email + Token (prompt unless supplied) -----------------------------
-Write-Step 'Atlassian credential'
+# ---- 2. Email + Token + tenant URLs ----------------------------------------
+Write-Step 'Atlassian credential + tenant'
+
+# Interactive path: one WinForms dialog gathers everything missing. Avoids the
+# Read-Host -AsSecureString paste bug where Windows Terminal can register a
+# token paste as a single character.
+if (-not $NonInteractive -and ((-not $Email) -or (-not $Token) -or (-not $JiraUrl) -or (-not $ConfluenceUrl))) {
+    . (Join-Path $PSScriptRoot 'SetupForm.ps1')
+    $vals = Show-HaloSetupForm -Email $Email -JiraUrl $JiraUrl -ConfluenceUrl $ConfluenceUrl
+    if (-not $vals) { throw 'Setup cancelled by user.' }
+    if (-not $Email)         { $Email         = $vals.Email }
+    if (-not $Token)         { $Token         = $vals.Token }
+    if (-not $JiraUrl)       { $JiraUrl       = $vals.JiraUrl }
+    if (-not $ConfluenceUrl) { $ConfluenceUrl = $vals.ConfluenceUrl }
+}
 
 if (-not $Email) {
     if ($NonInteractive) { throw '-NonInteractive set but -Email not provided.' }
-    $Email = Read-Host 'Atlassian email (e.g. you@your-org.com)'
+    throw 'Email is required.'
 }
-if (-not $Email) { throw 'Email is required.' }
-
 if (-not $Token) {
     if ($NonInteractive) { throw '-NonInteractive set but -Token not provided.' }
-    $sec = Read-Host 'Atlassian API token (input hidden; create at https://id.atlassian.com/manage-profile/security/api-tokens)' -AsSecureString
-    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
-    try {
-        $Token = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-    }
-    finally {
-        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-    }
+    throw 'Token is required.'
 }
-if (-not $Token) { throw 'Token is required.' }
-
 if (-not $JiraUrl) {
     if ($NonInteractive) { throw '-NonInteractive set but -JiraUrl not provided.' }
-    $JiraUrl = Read-Host 'Atlassian Jira base URL (e.g. https://your-tenant.atlassian.net)'
+    throw 'Jira URL is required.'
 }
-if (-not $JiraUrl) { throw 'Jira URL is required.' }
-$JiraUrl = $JiraUrl.TrimEnd('/')
-
-if (-not $ConfluenceUrl) {
-    $defaultConfluence = "$JiraUrl/wiki"
-    if ($NonInteractive) {
-        $ConfluenceUrl = $defaultConfluence
-    }
-    else {
-        $resp = Read-Host "Atlassian Confluence base URL [$defaultConfluence]"
-        $ConfluenceUrl = if ([string]::IsNullOrWhiteSpace($resp)) { $defaultConfluence } else { $resp.TrimEnd('/') }
-    }
-}
+if (-not $ConfluenceUrl) { $ConfluenceUrl = "$JiraUrl/wiki" }
+$JiraUrl       = $JiraUrl.TrimEnd('/')
+$ConfluenceUrl = $ConfluenceUrl.TrimEnd('/')
 
 # Mirror src/halo_mcp_atlassian/config.py validation so users see the error
 # at install time instead of getting cryptic ConfigError on first launch.

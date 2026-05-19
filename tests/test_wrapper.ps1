@@ -326,6 +326,19 @@ Assert {
     $installerText -match "throw '-NonInteractive set but -JiraUrl not provided"
 } '-NonInteractive throws on missing -JiraUrl'
 Assert {
+    Test-Path (Join-Path (Split-Path $Installer -Parent) 'SetupForm.ps1')
+} 'SetupForm.ps1 ships alongside installer'
+Assert {
+    $formText = Get-Content (Join-Path (Split-Path $Installer -Parent) 'SetupForm.ps1') -Raw
+    $formText -match 'function\s+Show-HaloSetupForm'
+} 'SetupForm.ps1 defines Show-HaloSetupForm'
+Assert {
+    $installerText -match 'SetupForm\.ps1'
+} 'installer dot-sources SetupForm.ps1'
+Assert {
+    $installerText -match 'Show-HaloSetupForm'
+} 'installer invokes Show-HaloSetupForm in interactive path'
+Assert {
     $installerText -match 'Pre-flight summary'
 } 'installer prints pre-flight summary'
 Assert {

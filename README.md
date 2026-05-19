@@ -58,7 +58,7 @@ cd halo-atlassian-mcp
 pwsh -NoProfile -File .\setup\Install-HaloAtlassianMcp.ps1
 ```
 
-The installer prompts for your Atlassian email + API token + tenant URL, then:
+The installer pops a small Windows form to collect your Atlassian email, API token, and tenant URLs (Jira + Confluence) in one shot, then:
 
 1. Stores email + token in **Windows Credential Manager** (Generic credential
    `halo-atlassian:api-token`). Inspect with
