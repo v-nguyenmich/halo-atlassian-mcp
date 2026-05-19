@@ -46,7 +46,8 @@ machine that already has Copilot CLI installed.
 - Windows 10/11, **PowerShell 7+** (`pwsh`).
 - **Docker Desktop** installed and running.
 - **GitHub Copilot CLI** already installed (`copilot --version` works).
-- An **Atlassian API token** — create at <https://id.atlassian.com/manage-profile/security/api-tokens>.
+- An **Atlassian API token** — create at <https://id.atlassian.com/manage-profile/security/api-tokens> with the desire scope
+- 
 
 ### Install
 
