@@ -29,9 +29,9 @@ $ErrorActionPreference = 'Stop'
 # build promotes a new :stable digest. Keep the exact assignment shape:
 #   $DefaultImage  = '<image>@sha256:<hex>'   # any trailing comment is preserved
 #   $PreviousImage = $env:HALO_MCP_PREV_IMAGE ; if (-not $PreviousImage) { $PreviousImage = '<image>@sha256:<hex>' }
-$DefaultImage  = 'ghcr.io/v-nguyenmich/halo-mcp-atlassian@sha256:82c1f51bb4de0c91440bf213663fab7657d90ae05132a54437b7625e801ebbd3'  # canary 2bc6ca7 (compact AQL + ungated list_object_type_attributes)
+$DefaultImage  = 'ghcr.io/v-nguyenmich/halo-mcp-atlassian@sha256:994643eefc2b4bcd5e019f439d970b73270c38e10f4288810538dbf58bdb3c7d'  # auto-bumped from aa4aaf64e35b4d2df42ed0cbd01886e9f60d08a3
 $CurrentImage  = $env:HALO_MCP_IMAGE        ; if (-not $CurrentImage)  { $CurrentImage  = $DefaultImage }
-$PreviousImage = $env:HALO_MCP_PREV_IMAGE   ; if (-not $PreviousImage) { $PreviousImage = 'ghcr.io/v-nguyenmich/halo-mcp-atlassian@sha256:61d8452cb0bfeda8c768a4095b7014bb85ff1a44d172e4188170ebcfdf7f22ca' }  # prior canary 0e2ae95
+$PreviousImage = $env:HALO_MCP_PREV_IMAGE   ; if (-not $PreviousImage) { $PreviousImage = 'ghcr.io/v-nguyenmich/halo-mcp-atlassian@sha256:82c1f51bb4de0c91440bf213663fab7657d90ae05132a54437b7625e801ebbd3' }  # prior canary 0e2ae95
 
 # ---- Credentials from Windows Credential Manager ----------------------------
 # Helper is shipped alongside this wrapper by the installer; running directly
