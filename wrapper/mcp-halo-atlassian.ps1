@@ -36,10 +36,10 @@ $PreviousImage = $env:HALO_MCP_PREV_IMAGE   ; if (-not $PreviousImage) { $Previo
 # ---- Credentials from Windows Credential Manager ----------------------------
 # Helper is shipped alongside this wrapper by the installer; running directly
 # out of a clone falls back to the repo path two directories up.
-$helperCandidates = @(
+$helperCandidates = @(@(
     (Join-Path $PSScriptRoot 'CredentialStore.ps1'),
     (Join-Path $PSScriptRoot '..\wrapper\CredentialStore.ps1')
-) | Where-Object { Test-Path $_ }
+) | Where-Object { Test-Path $_ })
 if (-not $helperCandidates) {
     [Console]::Error.WriteLine("mcp-halo-atlassian: CredentialStore.ps1 not found; reinstall via setup\Install-HaloAtlassianMcp.ps1")
     exit 1
