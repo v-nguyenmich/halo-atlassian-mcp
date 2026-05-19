@@ -17,7 +17,8 @@
   script.
 
 .PARAMETER DeployRoot
-  Where to copy the wrapper scripts. Defaults to D:\CopilotScripts.
+  Where to copy the wrapper scripts. Defaults to
+  %LOCALAPPDATA%\Programs\halo-mcp-atlassian.
 
 .PARAMETER LogPath
   Where to write the rolling log. Defaults to
@@ -29,7 +30,7 @@
 [CmdletBinding()]
 param(
     [string]$RepoRoot,
-    [string]$DeployRoot = 'D:\CopilotScripts',
+    [string]$DeployRoot = (Join-Path $env:LOCALAPPDATA 'Programs\halo-mcp-atlassian'),
     [string]$LogPath = (Join-Path $env:LOCALAPPDATA 'HaloMcp\update.log')
 )
 

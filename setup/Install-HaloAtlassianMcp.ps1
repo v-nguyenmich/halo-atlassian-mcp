@@ -8,7 +8,8 @@
 #   3b. Writes a tenant config (Jira/Confluence base URLs) to
 #        %USERPROFILE%\.halo-atlassian.json (non-secret, per-user, not
 #        committed). Pass -JiraUrl / -ConfluenceUrl for non-interactive.
-#   4. Copies the wrapper + helper into D:\CopilotScripts\.
+#   4. Copies the wrapper + helper into the deploy root (default
+#      %LOCALAPPDATA%\Programs\halo-mcp-atlassian; override with -DeployRoot).
 #   5. Merges (without overwriting other entries) a 'halo-atlassian' block
 #      into %USERPROFILE%\.copilot\mcp-config.json.
 #   6. docker pull's the pinned image digest.
@@ -40,7 +41,7 @@ param(
     [string]$Token,
     [string]$JiraUrl,
     [string]$ConfluenceUrl,
-    [string]$DeployRoot = 'D:\CopilotScripts',
+    [string]$DeployRoot = (Join-Path $env:LOCALAPPDATA 'Programs\halo-mcp-atlassian'),
     [string]$TenantConfigPath = (Join-Path $env:USERPROFILE '.halo-atlassian.json'),
     [switch]$DryRun,
     [switch]$SkipPull,
