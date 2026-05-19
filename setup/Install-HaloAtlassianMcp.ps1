@@ -47,6 +47,7 @@ param(
     [switch]$SkipPull,
     [switch]$SkipCheck,
     [switch]$SkipAutoUpdate,
+    [switch]$NonInteractive,
     [string]$AutoUpdateTaskName = 'HaloMcpAtlassian-AutoUpdate'
 )
 
@@ -68,6 +69,18 @@ function Write-Step  ([string]$msg) { Write-Host "==> $msg" -ForegroundColor Cya
 function Write-Ok    ([string]$msg) { Write-Host "    $msg" -ForegroundColor Green }
 function Write-Warn2 ([string]$msg) { Write-Host "    $msg" -ForegroundColor Yellow }
 function Write-Dry   ([string]$msg) { Write-Host "    [DRYRUN] $msg" -ForegroundColor DarkGray }
+
+# Idempotency banner: detect prior install before any user prompts so a
+# re-run is announced as a token rotation, not a fresh install.
+$priorInstall = (Test-Path $WrapperDst) -or (Test-Path $TenantConfigPath)
+if ($priorInstall) {
+    Write-Host '==> Detected prior install — running in rotate/refresh mode.' -ForegroundColor Cyan
+    if (Test-Path $WrapperDst)       { Write-Ok "wrapper present: $WrapperDst" }
+    if (Test-Path $TenantConfigPath) { Write-Ok "tenant config present: $TenantConfigPath" }
+}
+else {
+    Write-Host '==> Fresh install.' -ForegroundColor Cyan
+}
 
 # ---- 1. Prerequisites -------------------------------------------------------
 Write-Step 'Checking prerequisites'
@@ -104,11 +117,13 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 Write-Step 'Atlassian credential'
 
 if (-not $Email) {
+    if ($NonInteractive) { throw '-NonInteractive set but -Email not provided.' }
     $Email = Read-Host 'Atlassian email (e.g. you@your-org.com)'
 }
 if (-not $Email) { throw 'Email is required.' }
 
 if (-not $Token) {
+    if ($NonInteractive) { throw '-NonInteractive set but -Token not provided.' }
     $sec = Read-Host 'Atlassian API token (input hidden; create at https://id.atlassian.com/manage-profile/security/api-tokens)' -AsSecureString
     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
     try {
@@ -121,6 +136,7 @@ if (-not $Token) {
 if (-not $Token) { throw 'Token is required.' }
 
 if (-not $JiraUrl) {
+    if ($NonInteractive) { throw '-NonInteractive set but -JiraUrl not provided.' }
     $JiraUrl = Read-Host 'Atlassian Jira base URL (e.g. https://your-tenant.atlassian.net)'
 }
 if (-not $JiraUrl) { throw 'Jira URL is required.' }
@@ -128,8 +144,13 @@ $JiraUrl = $JiraUrl.TrimEnd('/')
 
 if (-not $ConfluenceUrl) {
     $defaultConfluence = "$JiraUrl/wiki"
-    $resp = Read-Host "Atlassian Confluence base URL [$defaultConfluence]"
-    $ConfluenceUrl = if ([string]::IsNullOrWhiteSpace($resp)) { $defaultConfluence } else { $resp.TrimEnd('/') }
+    if ($NonInteractive) {
+        $ConfluenceUrl = $defaultConfluence
+    }
+    else {
+        $resp = Read-Host "Atlassian Confluence base URL [$defaultConfluence]"
+        $ConfluenceUrl = if ([string]::IsNullOrWhiteSpace($resp)) { $defaultConfluence } else { $resp.TrimEnd('/') }
+    }
 }
 
 # Mirror src/halo_mcp_atlassian/config.py validation so users see the error
@@ -149,6 +170,24 @@ function Test-AtlassianUrl {
 }
 Test-AtlassianUrl -Url $JiraUrl       -Label 'Jira'
 Test-AtlassianUrl -Url $ConfluenceUrl -Label 'Confluence'
+
+# ---- 2b. Pre-flight summary -------------------------------------------------
+# Show every side-effecting target before we touch anything. In interactive
+# mode wait for Enter; -NonInteractive / -DryRun skip the pause.
+Write-Host ''
+Write-Host '==> Pre-flight summary' -ForegroundColor Cyan
+Write-Host ("    Mode             : {0}" -f $(if ($priorInstall) { 'rotate / refresh' } else { 'fresh install' }))
+Write-Host ("    Deploy root      : {0}" -f $DeployRoot)
+Write-Host ("    Tenant config    : {0}" -f $TenantConfigPath)
+Write-Host ("    Jira URL         : {0}" -f $JiraUrl)
+Write-Host ("    Confluence URL   : {0}" -f $ConfluenceUrl)
+Write-Host ("    mcp-config       : {0}" -f $ConfigPath)
+Write-Host ("    Atlassian email  : {0}" -f $Email)
+Write-Host ("    Scheduled task   : {0}" -f $(if ($SkipAutoUpdate) { '(skipped)' } else { $AutoUpdateTaskName + ' (weekly Mon 03:30)' }))
+Write-Host ''
+if (-not $DryRun -and -not $NonInteractive) {
+    $null = Read-Host 'Press Enter to continue, Ctrl-C to abort'
+}
 
 # ---- 3. Write to Credential Manager ----------------------------------------
 Write-Step 'Writing credential to Windows Credential Manager'
@@ -358,10 +397,27 @@ else {
 Write-Host ''
 Write-Host '==> Done.' -ForegroundColor Green
 Write-Host ''
-Write-Host 'Next:'
-Write-Host '  1. npm install -g @github/copilot   (if not already installed)'
-Write-Host '  2. copilot'
-Write-Host '  3. In session:  /tools              (should list halo-atlassian-* tools)'
+
+# Next-run for the auto-update task (skipped on DryRun / SkipAutoUpdate).
+if (-not $DryRun -and -not $SkipAutoUpdate) {
+    try {
+        $info = Get-ScheduledTaskInfo -TaskName $AutoUpdateTaskName -ErrorAction Stop
+        if ($info.NextRunTime) {
+            Write-Host ("Auto-update next run: {0:yyyy-MM-dd HH:mm} (local)" -f $info.NextRunTime) -ForegroundColor Cyan
+        }
+    } catch { } # task didn't register, already warned above
+}
+
 Write-Host ''
-Write-Host 'To rotate the token: re-run this script.'
+Write-Host 'Next:'
+if (-not (Get-Command copilot -ErrorAction SilentlyContinue)) {
+    Write-Host '  1. npm install -g @github/copilot'
+    Write-Host '  2. copilot'
+}
+else {
+    Write-Host '  1. copilot'
+}
+Write-Host '  -. In session:  /tools         (should list halo-atlassian-* tools)'
+Write-Host ''
+Write-Host 'To rotate the token: re-run this script (idempotent).'
 Write-Host 'To inspect the credential: cmdkey /list:halo-atlassian:api-token'
