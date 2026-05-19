@@ -164,6 +164,47 @@ Assert {
     (Get-Content $Wrapper -Raw) -match '\.halo-atlassian\.json'
 } 'wrapper falls back to ~/.halo-atlassian.json'
 
+# --- Wrapper portability (PR1) ----------------------------------------------
+Write-Host ''
+Write-Host '== Wrapper portability ==' -ForegroundColor Cyan
+$wrapperText = Get-Content $Wrapper -Raw
+Assert {
+    -not ($wrapperText -match "D:\\\\CopilotScripts\\\\halo-mcp-atlassian\\\\uploads")
+} 'wrapper has no hardcoded D:\ uploads path'
+Assert {
+    -not ($wrapperText -match "'D:\\\\CopilotScripts\\\\halo-mcp-atlassian\\\\wrapper\\\\CredentialStore\.ps1'")
+} 'wrapper has no stale D:\ CredentialStore fallback'
+Assert {
+    $wrapperText -match "Join-Path\s+\`$PSScriptRoot\s+'uploads'"
+} 'wrapper derives uploads dir from $PSScriptRoot'
+Assert {
+    $wrapperText -match 'param\(\s*\[switch\]\$DryRun'
+} 'wrapper accepts -DryRun switch'
+Assert {
+    $wrapperText -match 'docker info'
+} 'wrapper preflights with docker info'
+Assert {
+    $wrapperText -match 'Docker Desktop is not running'
+} 'wrapper prints friendly Docker-not-running error'
+Assert {
+    $wrapperText -match 'Get-Command\s+docker'
+} 'wrapper looks up docker via PATH first'
+
+# Functional: -DryRun exits 0 even when tenant URLs are absent.
+$old1 = $env:ATLASSIAN_JIRA_URL; $old2 = $env:ATLASSIAN_CONFLUENCE_URL
+try {
+    $env:ATLASSIAN_JIRA_URL = $null; $env:ATLASSIAN_CONFLUENCE_URL = $null
+    $out = pwsh -NoProfile -File $Wrapper -DryRun 2>&1
+    Assert { $LASTEXITCODE -eq 0 } "wrapper -DryRun exits 0 without tenant URLs (got $LASTEXITCODE)"
+    Assert { ($out -join "`n") -match 'DRYRUN: full command' } 'wrapper -DryRun prints the docker invocation'
+    Assert { ($out -join "`n") -match 'DRYRUN WARNING.*tenant URLs not configured' } 'wrapper -DryRun warns about missing tenant URLs instead of failing'
+}
+finally {
+    $env:ATLASSIAN_JIRA_URL = $old1; $env:ATLASSIAN_CONFLUENCE_URL = $old2
+    # Test side-effect: -DryRun creates uploads/ next to the wrapper.
+    Remove-Item (Join-Path (Split-Path $Wrapper -Parent) 'uploads') -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host ''
 if ($failures -eq 0) {
     Write-Host "All checks passed." -ForegroundColor Green

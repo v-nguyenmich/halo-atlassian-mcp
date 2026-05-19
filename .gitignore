@@ -8,3 +8,7 @@ build/
 *.egg-info/
 .coverage
 sbom.spdx.json
+
+# Auto-created by wrapper at runtime when running out of a clone.
+wrapper/uploads/
+
