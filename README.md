@@ -176,6 +176,32 @@ Remove the auto-update task with:
 Unregister-ScheduledTask -TaskName HaloMcpAtlassian-AutoUpdate -Confirm:$false
 ```
 
+### Uninstall
+
+Symmetric with the installer. Removes the deploy folder, the
+`halo-atlassian` entry from `mcp-config.json` (other servers preserved,
+backup written), the scheduled task, the Credential Manager entry, and the
+tenant config file.
+
+```powershell
+.\setup\Uninstall-HaloAtlassianMcp.ps1            # interactive
+.\setup\Uninstall-HaloAtlassianMcp.ps1 -DryRun    # show actions only
+.\setup\Uninstall-HaloAtlassianMcp.ps1 -KeepCredential -KeepTenantConfig
+```
+
+### Health check
+
+Run anytime to verify the install is still healthy:
+
+```powershell
+.\setup\Test-Installation.ps1
+```
+
+Verifies credential present, wrapper + helper deployed, mcp-config entry
+points at the deployed wrapper, tenant URLs valid, Docker engine
+responsive, pinned image cached, and the wrapper smoke-runs. Exit code is
+the count of failing checks (0 = healthy).
+
 #### How the digest itself gets bumped
 On the repo side, **Renovate** (`renovate.json`) watches the distroless base
 image and the GitHub Actions used by CI. When a new digest is available it
