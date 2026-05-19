@@ -454,6 +454,52 @@ Assert { $readme -match 'Docker not found' -and $readme -match '401 from Atlassi
 Assert { $skillMd      -match 'LOCALAPPDATA' } 'skill doc uses LOCALAPPDATA helper path'
 Assert { $wrapperReadme -match 'sibling of the wrapper' } 'wrapper/README documents uploads as wrapper-sibling'
 
+# --- Uninstaller + smoke-test (PR8) ----------------------------------------
+Write-Host ''
+Write-Host '== Uninstaller + smoke-test ==' -ForegroundColor Cyan
+$Uninstaller = Join-Path $RepoRoot 'setup\Uninstall-HaloAtlassianMcp.ps1'
+$SmokeTest   = Join-Path $RepoRoot 'setup\Test-Installation.ps1'
+Assert { Test-Path $Uninstaller } 'Uninstall-HaloAtlassianMcp.ps1 exists'
+Assert { Test-Path $SmokeTest }   'Test-Installation.ps1 exists'
+
+$uninst = Get-Content $Uninstaller -Raw
+Assert { $uninst -match '\[switch\]\$DryRun' }         'uninstaller supports -DryRun'
+Assert { $uninst -match '\[switch\]\$NonInteractive' } 'uninstaller supports -NonInteractive'
+Assert { $uninst -match 'Unregister-ScheduledTask' }   'uninstaller unregisters scheduled task'
+Assert { $uninst -match 'cmdkey.*delete' }             'uninstaller deletes credential via cmdkey'
+Assert { $uninst -match 'mcp-config\.json\.bak|"\$McpConfigPath\.bak"' } 'uninstaller backs up mcp-config before edit'
+Assert { $uninst -match '\[switch\]\$KeepCredential' } 'uninstaller supports -KeepCredential'
+Assert { $uninst -match '\[switch\]\$KeepTenantConfig' } 'uninstaller supports -KeepTenantConfig'
+
+$smoke = Get-Content $SmokeTest -Raw
+Assert { $smoke -match 'cmdkey.*list' }              'smoke-test checks credential via cmdkey'
+Assert { $smoke -match 'docker info' }               'smoke-test pings docker engine'
+Assert { $smoke -match 'image inspect' }             'smoke-test checks pinned image cached'
+Assert { $smoke -match '\.atlassian\.net' }          'smoke-test validates tenant URL shape'
+Assert { $smoke -match '\[switch\]\$SkipImageCheck' -and $smoke -match '\[switch\]\$SkipContainerCheck' } 'smoke-test has skip switches'
+
+# Functional: uninstaller DryRun against a fake install exits 0 and prints summary.
+$tmpDeploy = Join-Path $env:TEMP ("halo-uninst-deploy-" + [guid]::NewGuid().ToString('N'))
+$tmpMcp    = Join-Path $env:TEMP ("halo-uninst-mcp-"    + [guid]::NewGuid().ToString('N') + '.json')
+$tmpTen    = Join-Path $env:TEMP ("halo-uninst-tenant-" + [guid]::NewGuid().ToString('N') + '.json')
+$tmpCred   = "halo-uninst-test-" + [guid]::NewGuid().ToString('N').Substring(0,8)
+$uninstOut = & pwsh -NoProfile -File $Uninstaller -DryRun -NonInteractive `
+    -DeployRoot $tmpDeploy -McpConfigPath $tmpMcp -TenantConfigPath $tmpTen `
+    -CredentialTarget $tmpCred -AutoUpdateTaskName "fake-task-doesnt-exist" 2>&1
+$uninstExit = $LASTEXITCODE
+Assert { $uninstExit -eq 0 }                  ("uninstaller DryRun exits 0 (got $uninstExit)")
+Assert { ($uninstOut -join "`n") -match 'Summary' } 'uninstaller DryRun prints summary block'
+Assert { ($uninstOut -join "`n") -match 'DryRun complete' } 'uninstaller DryRun banner shown'
+
+# Functional: smoke-test against fake paths returns non-zero failure count.
+$smokeOut = & pwsh -NoProfile -File $SmokeTest -SkipImageCheck -SkipContainerCheck `
+    -DeployRoot $tmpDeploy -McpConfigPath $tmpMcp -TenantConfigPath $tmpTen `
+    -CredentialTarget $tmpCred 2>&1
+$smokeExit = $LASTEXITCODE
+Assert { $smokeExit -gt 0 }                   ("smoke-test exits non-zero on missing install (got $smokeExit)")
+Assert { ($smokeOut -join "`n") -match 'check\(s\) failed' } 'smoke-test prints failure count'
+Assert { ($smokeOut -join "`n") -notmatch 'Cannot index into a null array' } 'smoke-test handles missing mcp-config without runtime error'
+
 Write-Host ''
 if ($failures -eq 0) {
     Write-Host "All checks passed." -ForegroundColor Green
