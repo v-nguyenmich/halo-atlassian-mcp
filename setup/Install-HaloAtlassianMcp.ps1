@@ -56,6 +56,21 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Write-Fail ([string]$msg, [int]$code = 1) {
+    Write-Host ''
+    Write-Host "==> ERROR: $msg" -ForegroundColor Red
+    exit $code
+}
+
+# Top-level trap converts any unhandled exception into a clean one-line error
+# instead of a multi-line PowerShell stack trace with carets and line numbers.
+trap {
+    Write-Host ''
+    Write-Host "==> ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "    (re-run with -Verbose for the full stack trace)" -ForegroundColor DarkGray
+    exit 1
+}
+
 # ---- Paths ------------------------------------------------------------------
 $RepoRoot       = Split-Path -Parent $PSScriptRoot
 $WrapperSrc     = Join-Path $RepoRoot 'wrapper\mcp-halo-atlassian.ps1'
@@ -135,7 +150,13 @@ Write-Step 'Atlassian credential + tenant'
 if (-not $NonInteractive -and ((-not $Email) -or (-not $Token) -or (-not $JiraUrl) -or (-not $ConfluenceUrl))) {
     . (Join-Path $PSScriptRoot 'SetupForm.ps1')
     $vals = Show-HaloSetupForm -Email $Email -JiraUrl $JiraUrl -ConfluenceUrl $ConfluenceUrl
-    if (-not $vals) { throw 'Setup cancelled by user.' }
+    if (-not $vals) {
+        Write-Host ''
+        Write-Host '==> Setup cancelled. No changes made.' -ForegroundColor Yellow
+        Write-Host '    Re-run when you have your Atlassian email + API token ready:' -ForegroundColor DarkGray
+        Write-Host '    https://id.atlassian.com/manage-profile/security/api-tokens' -ForegroundColor DarkGray
+        exit 0
+    }
     if (-not $Email)         { $Email         = $vals.Email }
     if (-not $Token)         { $Token         = $vals.Token }
     if (-not $JiraUrl)       { $JiraUrl       = $vals.JiraUrl }
@@ -388,8 +409,7 @@ else {
     else {
         & $docker pull $pinned
         if ($LASTEXITCODE -ne 0) {
-            Write-Error 'docker pull failed.'
-            exit 4
+            Write-Fail "docker pull failed for image '$pinned'. Check Docker Desktop is running and your network can reach ghcr.io." 4
         }
         Write-Ok 'image pulled'
     }
@@ -415,8 +435,16 @@ else {
         )
         & $docker @checkArgs
         if ($LASTEXITCODE -ne 0) {
-            Write-Error '--check failed. Token may be invalid or Atlassian unreachable.'
-            exit 5
+            Write-Fail @"
+--check failed. Most common causes:
+  1. API token is invalid, expired, or was pasted incorrectly
+     (Windows Terminal paste bug can drop characters).
+     Rotate at https://id.atlassian.com/manage-profile/security/api-tokens
+     and re-run this installer.
+  2. Email does not match the account that owns the token.
+  3. Network cannot reach $JiraUrl
+     (proxy, VPN, or firewall).
+"@ 5
         }
         Write-Ok '--check passed'
     }
