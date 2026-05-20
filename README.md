@@ -7,32 +7,6 @@ Self-hosted MCP server for Atlassian Cloud. Signed, scanned, distroless.
 - Auth (v1): Basic (email + API token); OAuth 3LO planned for v6
 - Image: distroless python3 (non-root, read-only rootfs)
 
-## Quick start (dev)
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
-$env:ATLASSIAN_JIRA_URL = "https://your-tenant.atlassian.net"
-$env:ATLASSIAN_CONFLUENCE_URL = "https://your-tenant.atlassian.net/wiki"
-$env:ATLASSIAN_EMAIL = "you@example.com"
-$env:ATLASSIAN_API_TOKEN = "..."
-python -m halo_mcp_atlassian
-```
-
-## Test
-
-```powershell
-pytest -q
-ruff check src tests
-pwsh -NoProfile -File tests\test_wrapper.ps1   # wrapper / CredMan helper smoke
-```
-
-## Build
-
-```powershell
-docker build -t halo-mcp-atlassian:dev .
-```
 
 ## User setup (GitHub Copilot CLI on Windows)
 
@@ -46,7 +20,9 @@ machine that already has Copilot CLI installed.
 - Windows 10/11, **PowerShell 7+** (`pwsh`).
 - **Docker Desktop** installed and running.
 - **GitHub Copilot CLI** already installed (`copilot --version` works).
+- Your Atlassian email + Jira URL + Confluence URL
 - An **Atlassian API token** — create at <https://id.atlassian.com/manage-profile/security/api-tokens>.
+
 
 ### Install
 
@@ -319,6 +295,34 @@ changes.
 See `docs/tool-reference.md`. Currently 22 tools (9 Jira + 7 Confluence +
 6 Assets read; optional 3 Assets write tools gated behind
 `HALO_MCP_ASSETS_WRITE=1`).
+
+
+## Quick start (dev)
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+$env:ATLASSIAN_JIRA_URL = "https://your-tenant.atlassian.net"
+$env:ATLASSIAN_CONFLUENCE_URL = "https://your-tenant.atlassian.net/wiki"
+$env:ATLASSIAN_EMAIL = "you@example.com"
+$env:ATLASSIAN_API_TOKEN = "..."
+python -m halo_mcp_atlassian
+```
+
+## Test
+
+```powershell
+pytest -q
+ruff check src tests
+pwsh -NoProfile -File tests\test_wrapper.ps1   # wrapper / CredMan helper smoke
+```
+
+## Build
+
+```powershell
+docker build -t halo-mcp-atlassian:dev .
+```
 
 ## Copilot CLI skill
 
