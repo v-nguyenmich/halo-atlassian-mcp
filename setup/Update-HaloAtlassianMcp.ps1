@@ -153,6 +153,30 @@ try {
     Copy-Item -Force $helperSrc  (Join-Path $DeployRoot 'CredentialStore.ps1')
     Write-Log "deployed wrapper to $DeployRoot"
 
+    # Prune dangling halo-mcp-atlassian images left behind by the digest bump.
+    # Scoped to this image repo (parsed from the pinned reference) so it cannot
+    # touch unrelated dangling images on the host. Best-effort: failures are
+    # logged but do not fail the update.
+    try {
+        $repoRef = ($image -split '[@:]')[0]   # ghcr.io/owner/halo-mcp-atlassian
+        $dangling = & docker images $repoRef --filter 'dangling=true' --format '{{.ID}}' 2>$null
+        if ($LASTEXITCODE -eq 0 -and $dangling) {
+            $ids = @($dangling | Where-Object { $_ })
+            if ($ids.Count -gt 0) {
+                & docker rmi -f @ids *> $null
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Log ("pruned {0} dangling image(s) for {1}" -f $ids.Count, $repoRef)
+                } else {
+                    Write-Log "image prune returned non-zero (some images may be in use); continuing" 'WARN'
+                }
+            }
+        } else {
+            Write-Log "no dangling images to prune for $repoRef"
+        }
+    } catch {
+        Write-Log "image prune skipped: $($_.Exception.Message)" 'WARN'
+    }
+
     Write-Log "update OK"
     exit 0
 }

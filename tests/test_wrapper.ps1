@@ -117,6 +117,12 @@ Assert {
     $updaterText -match "\`$env:LOCALAPPDATA\s+'Programs\\halo-mcp-atlassian'"
 } 'updater defaults to %LOCALAPPDATA%\Programs\halo-mcp-atlassian'
 Assert {
+    $updaterText -match 'docker images.*\$repoRef.*dangling=true'
+} 'updater prunes dangling halo images, scoped to the halo image repo'
+Assert {
+    $updaterText -match 'docker rmi -f'
+} 'updater removes dangling image IDs after digest bump'
+Assert {
     # Scheduled task must still pass -DeployRoot explicitly so a later
     # default change can't strand existing tasks pointed at old paths.
     $installerText -match '-DeployRoot\s+`"\$DeployRoot`"'
