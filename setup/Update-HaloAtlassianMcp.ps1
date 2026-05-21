@@ -139,7 +139,7 @@ try {
         if (-not (Test-Path $p)) { throw "Missing source file: $p" }
     }
 
-    $match = Select-String -Path $wrapperSrc -Pattern '\$DefaultImage\s*=\s*''([^'']+)''' |
+    $match = Select-String -Path $wrapperSrc -Pattern '^\$DefaultImage\s*=\s*''([^'']+)''' |
              Select-Object -First 1
     if (-not $match) { throw "Could not parse `\$DefaultImage` from $wrapperSrc" }
     $image = $match.Matches[0].Groups[1].Value
@@ -153,25 +153,40 @@ try {
     Copy-Item -Force $helperSrc  (Join-Path $DeployRoot 'CredentialStore.ps1')
     Write-Log "deployed wrapper to $DeployRoot"
 
-    # Prune dangling halo-mcp-atlassian images left behind by the digest bump.
-    # Scoped to this image repo (parsed from the pinned reference) so it cannot
-    # touch unrelated dangling images on the host. Best-effort: failures are
+    # Prune halo-mcp-atlassian images left behind by digest bumps. Images
+    # pulled by digest (image@sha256:...) show up as <repo>:<none> but are
+    # NOT 'dangling' by Docker's definition, so `--filter dangling=true`
+    # misses them. We enumerate all images for this repo, find the current
+    # pinned digest's image ID, and remove the rest. Scoped to this repo
+    # only — cannot touch unrelated images. Best-effort: failures are
     # logged but do not fail the update.
     try {
         $repoRef = ($image -split '[@:]')[0]   # ghcr.io/owner/halo-mcp-atlassian
-        $dangling = & docker images $repoRef --filter 'dangling=true' --format '{{.ID}}' 2>$null
-        if ($LASTEXITCODE -eq 0 -and $dangling) {
-            $ids = @($dangling | Where-Object { $_ })
-            if ($ids.Count -gt 0) {
-                & docker rmi -f @ids *> $null
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Log ("pruned {0} dangling image(s) for {1}" -f $ids.Count, $repoRef)
+        $currentId = (& docker image inspect $image --format '{{.Id}}' 2>$null)
+        if ($LASTEXITCODE -ne 0 -or -not $currentId) {
+            Write-Log "prune skipped: could not resolve current image id for $image" 'WARN'
+        } else {
+            $currentId = $currentId.Trim()
+            $rows = & docker images $repoRef --format '{{.ID}}|{{.Tag}}' 2>$null
+            if ($LASTEXITCODE -eq 0 -and $rows) {
+                $stale = @($rows | ForEach-Object {
+                    $parts = $_ -split '\|', 2
+                    $id = 'sha256:' + $parts[0]
+                    # Match on short ID prefix (docker images returns 12-char short ID).
+                    if ($currentId.StartsWith($id) -or $id.StartsWith($currentId.Substring(0, [Math]::Min($currentId.Length, 19)))) { return }
+                    $parts[0]
+                } | Where-Object { $_ } | Select-Object -Unique)
+                if ($stale.Count -gt 0) {
+                    & docker rmi -f @stale *> $null
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Log ("pruned {0} stale image(s) for {1}" -f $stale.Count, $repoRef)
+                    } else {
+                        Write-Log "prune returned non-zero (some images may be in use); continuing" 'WARN'
+                    }
                 } else {
-                    Write-Log "image prune returned non-zero (some images may be in use); continuing" 'WARN'
+                    Write-Log "no stale halo images to prune"
                 }
             }
-        } else {
-            Write-Log "no dangling images to prune for $repoRef"
         }
     } catch {
         Write-Log "image prune skipped: $($_.Exception.Message)" 'WARN'
