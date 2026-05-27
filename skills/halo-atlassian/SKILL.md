@@ -201,6 +201,13 @@ function New-AdfPara($text) {
 
 ## Atlassian Assets
 
+> **Editing objects (rename / reassign / restatus / relocate):** read
+> the sub-skill at `assets-edit/SKILL.md` in this folder before issuing
+> a PUT. It documents the 5-step workflow, attribute `type` → value
+> shape table, resolver patterns for users/status/refs, and common
+> errors. The Assets MCP server is read-only here; all writes are
+> direct REST.
+
 ### Schemas
 List with `halo-atlassian-assets_list_schemas`. Frequently used:
 - id `2` — **Asset Management** (hardware, software, licenses)
@@ -294,6 +301,10 @@ date, user display). Use `value` only for raw IDs.
 - Read by id: `confluence_get_page` — `body_format` can be `storage`
   (XHTML), `view` (rendered HTML), or `atlas_doc_format` (ADF).
 - Title lookup: `confluence_get_page_by_title(space_id, title)`.
+- Create page: `confluence_create_page` — required args: `space_id`,
+  `title`, `body_storage` (XHTML string). Optional: `parent_id`. The body
+  parameter is named **`body_storage`**, NOT `content` / `body` /
+  `body_format`. Append the AI footer.
 - CQL search: `confluence_search` (the v1 search endpoint — the v2 API
   has no equivalent).
 - Attachments list: `confluence_get_attachments(page_id)`.
