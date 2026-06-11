@@ -18,6 +18,7 @@ machine that already has Copilot CLI installed.
 ### Prerequisites
 
 - Windows 10/11, **PowerShell 7+** (`pwsh`).
+- **Git for Windows** installed at <https://git-scm.com/install/windows>.
 - **Docker Desktop** installed and running.
 - **GitHub Copilot CLI** already installed (`copilot --version` works).
 - Your Atlassian email + Jira URL + Confluence URL
