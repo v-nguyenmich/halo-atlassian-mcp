@@ -201,16 +201,34 @@ pathlib.Path(path).write_text(text, encoding="utf-8")
 '@
     $scriptFile = [IO.Path]::ChangeExtension($tmpWrap, '.py')
     Set-Content -Path $scriptFile -Value $script -Encoding UTF8
-    $oldDigest = (& uv run python $scriptFile $tmpWrap $newRef 'cafef00' | Select-Object -First 1).Trim()
-    $rc = $LASTEXITCODE
-    Assert { $rc -eq 0 } "first rewrite exits 0 (got $rc)"
-    Assert { ((Select-String -Path $tmpWrap -Pattern '^\$DefaultImage' | Select-Object -First 1).Line) -match [regex]::Escape($newRef) } 'DefaultImage updated'
-    Assert { ((Select-String -Path $tmpWrap -Pattern '^\$PreviousImage' | Select-Object -First 1).Line) -match [regex]::Escape($oldDigest) } 'PreviousImage demoted to old default'
-    Assert { ((Select-String -Path $tmpWrap -Pattern '^\$DefaultImage' | Select-Object -First 1).Line) -match 'auto-bumped from cafef00' } 'auto-bump comment present'
-    # Second run with same digest is a no-op (exit 2 means SAME).
-    & uv run python $scriptFile $tmpWrap $newRef 'cafef00' *> $null
-    Assert { $LASTEXITCODE -eq 2 } "second rewrite is no-op (exit 2 for SAME, got $LASTEXITCODE)"
-    Remove-Item $scriptFile -Force
+
+    # Resolve a usable Python interpreter. This project deliberately does NOT
+    # use uv; the production bump script (scripts/bump-wrapper-digest.sh) runs
+    # the same rewrite via python3. Mirror that here, falling back to `python`.
+    # The Windows Store app-execution-alias stub is not a real interpreter, so
+    # validate each candidate by actually invoking it.
+    $python = $null
+    foreach ($cand in @('python3', 'python')) {
+        if (-not (Get-Command $cand -ErrorAction SilentlyContinue)) { continue }
+        try { & $cand --version *> $null } catch { continue }
+        if ($LASTEXITCODE -eq 0) { $python = $cand; break }
+    }
+
+    if (-not $python) {
+        Write-Host '  SKIP  bump-digest rewrite (no Python interpreter found)' -ForegroundColor Yellow
+    }
+    else {
+        $oldDigest = (& $python $scriptFile $tmpWrap $newRef 'cafef00' | Select-Object -First 1).Trim()
+        $rc = $LASTEXITCODE
+        Assert { $rc -eq 0 } "first rewrite exits 0 (got $rc)"
+        Assert { ((Select-String -Path $tmpWrap -Pattern '^\$DefaultImage' | Select-Object -First 1).Line) -match [regex]::Escape($newRef) } 'DefaultImage updated'
+        Assert { ((Select-String -Path $tmpWrap -Pattern '^\$PreviousImage' | Select-Object -First 1).Line) -match [regex]::Escape($oldDigest) } 'PreviousImage demoted to old default'
+        Assert { ((Select-String -Path $tmpWrap -Pattern '^\$DefaultImage' | Select-Object -First 1).Line) -match 'auto-bumped from cafef00' } 'auto-bump comment present'
+        # Second run with same digest is a no-op (exit 2 means SAME).
+        & $python $scriptFile $tmpWrap $newRef 'cafef00' *> $null
+        Assert { $LASTEXITCODE -eq 2 } "second rewrite is no-op (exit 2 for SAME, got $LASTEXITCODE)"
+    }
+    Remove-Item $scriptFile -Force -ErrorAction SilentlyContinue
 }
 finally {
     if (Test-Path $tmpWrap) { Remove-Item $tmpWrap -Force }
@@ -260,9 +278,14 @@ Assert {
 } 'wrapper looks up docker via PATH first'
 
 # Functional: -DryRun exits 0 even when tenant URLs are absent.
+# Isolate from a developer's real install: besides clearing the two env vars,
+# point HALO_MCP_TENANT_CONFIG at a guaranteed-nonexistent path so the wrapper
+# does NOT fall back to ~/.halo-atlassian.json and silently populate the URLs.
 $old1 = $env:ATLASSIAN_JIRA_URL; $old2 = $env:ATLASSIAN_CONFLUENCE_URL
+$old3 = $env:HALO_MCP_TENANT_CONFIG
 try {
     $env:ATLASSIAN_JIRA_URL = $null; $env:ATLASSIAN_CONFLUENCE_URL = $null
+    $env:HALO_MCP_TENANT_CONFIG = Join-Path $env:TEMP ("halo-no-tenant-" + [guid]::NewGuid().ToString('N') + ".json")
     $out = pwsh -NoProfile -File $Wrapper -DryRun 2>&1
     Assert { $LASTEXITCODE -eq 0 } "wrapper -DryRun exits 0 without tenant URLs (got $LASTEXITCODE)"
     Assert { ($out -join "`n") -match 'DRYRUN: full command' } 'wrapper -DryRun prints the docker invocation'
@@ -270,6 +293,7 @@ try {
 }
 finally {
     $env:ATLASSIAN_JIRA_URL = $old1; $env:ATLASSIAN_CONFLUENCE_URL = $old2
+    $env:HALO_MCP_TENANT_CONFIG = $old3
     # Test side-effect: -DryRun creates uploads/ next to the wrapper.
     Remove-Item (Join-Path (Split-Path $Wrapper -Parent) 'uploads') -Recurse -Force -ErrorAction SilentlyContinue
 }
