@@ -19,7 +19,11 @@
 # libc6 — glibc memalign integer overflow (fixed in 2.36-9+deb12u14)
 CVE-2026-0861
 
-# libssl3 — OpenSSL PKCS7_verify() heap use-after-free (fixed in 3.0.20-1~deb12u2)
+# libssl3 — OpenSSL PKCS7_verify() heap use-after-free (fixed in 3.0.20-1~deb12u2).
+# TEMPORARY: as of 2026-06-12 the pinned distroless :nonroot digest still ships
+# 3.0.19-1~deb12u2, and `docker pull gcr.io/distroless/python3-debian12:nonroot`
+# resolves to the same digest (no patched rebuild published yet). Remove this
+# entry and refresh the Dockerfile base digest once distroless ships 3.0.20.
 CVE-2026-45447
 
 # cpython — http.client read-buffer DoS (fixed in 3.11.2-6+deb12u7)
