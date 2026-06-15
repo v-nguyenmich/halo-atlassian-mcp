@@ -361,6 +361,36 @@ the user's ask:
 - **Output size:** large MCP outputs spill to a temp file. Use `view`
   with `view_range`, `grep`, or `ConvertFrom-Json` on the temp path; do
   not dump entire JSON to chat.
+- **Duplicate-JSON parsing trap (counts come out 2x):** the spilled temp
+  file often contains the **same response serialized twice** — a
+  pretty-printed block immediately followed by a compact single-line
+  block. Naively splitting on `}{` / `}\s*{` boundaries (or on
+  `(?=\{\s*"issues")`) parses both copies and **doubles every count**
+  (e.g. 21 open tickets reported as 42). This is a parsing artifact, not
+  real data. Guard against it:
+  - **Parse only the first JSON object.** `ConvertFrom-Json` stops at the
+    first complete object; if you must split manually, take `$parts[0]`
+    only — do not concatenate all parts.
+  - **Always dedupe by stable key and count the unique set**, never the
+    raw array length: `($issues.key | Sort-Object -Unique).Count` for
+    Jira, `objectKey` for Assets. Treat repeated keys as duplication, not
+    distinct rows.
+  - **Sanity-check the number** against the tool's own `total` /
+    `isLast` / page size before reporting it. If your count is an exact
+    2x of those, you hit this trap.
+  - The same double-serialization shows up on single-object reads
+    (`jira_get_issue`) — read one object, ignore the trailing repeat.
+  - Reusable extractor:
+    ```powershell
+    # $path = spilled temp file
+    $obj = (Get-Content $path -Raw | ConvertFrom-Json)  # first object only
+    $issues = $obj.issues
+    $uniqueKeys = $issues.key | Sort-Object -Unique
+    "Unique: $($uniqueKeys.Count)  Raw: $($issues.Count)"
+    ```
+    If `ConvertFrom-Json` throws `Additional text encountered after
+    finished reading JSON content`, that confirms a trailing duplicate —
+    truncate to the first object instead of regex-splitting and summing.
 - **PowerShell quoting:** wrap multi-statement PowerShell in a single
   here-string `$cmd = @' ... '@` or one-liner with `;` separators when
   running through the powershell tool, to avoid the interactive prompt
